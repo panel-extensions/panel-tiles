@@ -18,7 +18,7 @@ pip install panel-tiles
 import panel as pn
 from panel_tiles import TileGrid
 
-pn.extension("panel-tiles")
+pn.extension()
 
 grid = TileGrid(
     objects=[
@@ -31,8 +31,6 @@ grid = TileGrid(
 
 grid.servable()
 ```
-
-Use `pn.extension("panel-tiles")` (or `pn.extension()` after a normal install) so Panel loads the bundled JavaScript and styles.
 
 ## Features
 
