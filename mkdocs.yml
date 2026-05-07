@@ -1,0 +1,59 @@
+site_name: panel-tiles
+site_description: Provides a draggable and resizable grid for Panel.
+site_author: Philipp Rudiger
+
+repo_url: https://github.com/panel-extensions/panel-tiles
+repo_name: panel-extensions/panel-tiles
+
+theme:
+    name: material
+    logo: 'assets/logo.svg'
+    features:
+        - content.copy.code
+    palette:
+        # Palette toggle for light mode
+        - media: "(prefers-color-scheme: light)"
+          scheme: default
+          primary: white
+          accent: blue
+          toggle:
+            icon: material/brightness-7
+            name: Switch to dark mode
+
+        # Palette toggle for dark mode
+        - media: "(prefers-color-scheme: dark)"
+          scheme: slate
+          primary: black
+          accent: blue
+          toggle:
+            icon: material/brightness-4
+            name: Switch to light mode
+
+markdown_extensions:
+    - toc:
+        permalink: true
+    - pymdownx.highlight:
+        anchor_linenums: true
+    - pymdownx.tasklist:
+        custom_checkbox: true
+    - pymdownx.inlinehilite
+    - pymdownx.snippets
+    - pymdownx.superfences
+    - admonition
+
+plugins:
+    - search
+    - mkdocstrings:
+        handlers:
+            python:
+                paths: [src]
+                options:
+                    docstring_style: google
+
+watch:
+    - docs
+
+nav:
+    - Home: index.md
+    - Reference:
+        - panel-tiles: reference/panel-tiles.md
