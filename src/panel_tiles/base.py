@@ -1,8 +1,7 @@
 import hashlib
 import os
-
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Literal
 
 import param
 from bokeh.embed.bundle import extension_dirs
@@ -10,12 +9,12 @@ from panel.config import config
 from panel.custom import Children, JSComponent
 from panel.io import state
 from panel.layout.base import ListLike
-from panel.util import base_version, classproperty
+from panel.util import classproperty
 
 BASE_PATH = Path(__file__).parent
-DIST_PATH = BASE_PATH / 'dist'
+DIST_PATH = BASE_PATH / "dist"
 
-extension_dirs['panel-tiles'] = DIST_PATH
+extension_dirs["panel-tiles"] = DIST_PATH
 
 
 class TileGrid(JSComponent, ListLike):
@@ -38,6 +37,7 @@ class TileGrid(JSComponent, ListLike):
     _bundle = DIST_PATH / "panel-tiles.bundle.js"
     _esm = BASE_PATH / "models" / "grid.js"
     _stylesheets = [DIST_PATH / "css" / "grid.css"]
+
     @classmethod
     def _esm_path(cls, compiled: bool | Literal["compiling"] = True) -> os.PathLike | None:
         return super()._esm_path(compiled or True)
@@ -54,6 +54,7 @@ class TileGrid(JSComponent, ListLike):
         else:
             esm = esm_path.read_text(encoding="utf-8")
         return esm
+
     @classproperty
     def _bundle_path(cls) -> os.PathLike | None:
         return cls._bundle

@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import sys
 import typing as t
-
 from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
@@ -15,7 +14,7 @@ GREEN, RED, RESET = "\033[0;32m", "\033[0;31m", "\033[0m"
 def compile_bundle():
     from panel.io.compile import compile_components, find_module_bundles
 
-    print(f"{GREEN}[PANEL-TILES]{RESET} Compile panel-tiles bundle", flush=True)
+    print(f"{GREEN}[PANEL-TILES]{RESET} Compile panel-tiles bundle", flush=True)  # noqa
 
     sys.path.insert(0, str(BASE_DIR / "src"))
     module_bundles = find_module_bundles("panel_tiles")
@@ -37,9 +36,9 @@ def compile_bundle():
         fcntl.fcntl(sys.stdout, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
 
     if not errors:
-        print(f"{GREEN}[PANEL-TILES]{RESET} Finished building bundle", flush=True)
+        print(f"{GREEN}[PANEL-TILES]{RESET} Finished building bundle", flush=True)  # noqa
     else:
-        print(f"{RED}[PANEL-TILES]{RESET} Failed building bundle", flush=True)
+        print(f"{RED}[PANEL-TILES]{RESET} Failed building bundle", flush=True)  # noqa
         sys.exit(1)
 
 

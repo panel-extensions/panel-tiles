@@ -1,5 +1,3 @@
-import pytest
-
 optional_markers = {
     "ui": {
         "help": "Runs UI related tests",

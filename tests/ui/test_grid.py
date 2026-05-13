@@ -2,11 +2,10 @@ import pytest
 
 pytest.importorskip("playwright")
 
-from playwright.sync_api import expect
-
 from panel import Spacer
 from panel.pane import Markdown
 from panel.tests.util import serve_component, wait_until
+from playwright.sync_api import expect
 
 from panel_tiles import TileGrid
 
