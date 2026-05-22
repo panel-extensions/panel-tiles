@@ -37,6 +37,7 @@ class TileGrid(JSComponent, ListLike):
     _bundle = DIST_PATH / "panel-tiles.bundle.js"
     _esm = BASE_PATH / "models" / "grid.js"
     _stylesheets = [DIST_PATH / "css" / "grid.css"]
+    _render_policy = "manual"
 
     @classmethod
     def _esm_path(cls, compiled: bool | Literal["compiling"] = True) -> os.PathLike | None:
