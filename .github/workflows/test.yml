@@ -80,7 +80,7 @@ jobs:
               - 'tests/**'
               - 'examples/**'
               - 'pyproject.toml'
-              - '.github/workflows/ci.yaml'
+              - '.github/workflows/test.yaml'
               - 'pixi.toml'
       - name: Set matrix option
         env:
