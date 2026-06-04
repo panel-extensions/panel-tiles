@@ -6,39 +6,56 @@
 
 A draggable, resizable grid layout for [Panel](https://panel.holoviz.org) applications (Muuri + interact.js).
 
+![Dashboard example](https://github.com/panel-extensions/panel-tiles/raw/main/docs/screenshots/hero.png)
+
 ## Installation
 
 ```bash
 pip install panel-tiles
 ```
 
-## Quick start
+## Quick Start
 
 ```python
-import panel as pn
 from panel_tiles import TileGrid
 
-pn.extension()
+...
 
 grid = TileGrid(
     objects=[
-        pn.pane.Markdown("## Panel A"),
-        pn.pane.Markdown("## Panel B"),
+        revenue_ind,
+        growth_ind,
+        users_ind,
+        retention_ind,
+        pn.pane.Bokeh(line_fig),
+        pn.pane.Bokeh(bar_fig),
+        table,
     ],
-    editable=True,
-    width=800,
+    layout=[
+        {"width": 25, "height": 100, "visible": True},
+        {"width": 25, "height": 100, "visible": True},
+        {"width": 25, "height": 100, "visible": True},
+        {"width": 25, "height": 100, "visible": True},
+        {"width": 50, "height": 300, "visible": True},
+        {"width": 50, "height": 300, "visible": True},
+        {"width": 100, "height": 250, "visible": True},
+    ],
+    sizing_mode="stretch_width",
+    height=750,
 )
 
-grid.servable()
+pmui.Page(main=[grid], title="panel-tiles").servable()
 ```
-
-Use `pn.extension("panel-tiles")` (or `pn.extension()` after a normal install) so Panel loads the bundled JavaScript and styles.
 
 ## Features
 
-- Drag-and-drop and resize tiles when `editable=True`
-- Optional layout persistence (`local_save`)
-- `initial_layout` and live `layout` updates from Python
+- Drag-and-drop tile reordering
+- Resize tiles from the corner handle
+- Configurable layout with percentage widths and pixel heights
+- Close buttons with hide or remove behavior
+- Persist user layouts to localStorage
+- Read-only mode for fixed dashboards
+- Dynamic add/remove of tiles at runtime
 
 ## Development
 
