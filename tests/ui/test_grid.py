@@ -48,13 +48,13 @@ def test_grid_renders_children_and_handles(page):
     expect(resizes).to_have_count(3)
 
 
-def test_grid_initial_layout_applies_sizes(page):
+def test_grid_layout_applies_sizes(page):
     grid = TileGrid(
         objects=[
             Markdown("1"),
             Markdown("2"),
         ],
-        initial_layout=[
+        layout=[
             {"index": 0, "width": 35, "height": 90, "visible": True},
             {"index": 1, "width": 65, "height": 140, "visible": True},
         ],
@@ -107,13 +107,13 @@ def test_grid_layout_parameter_updates_item_sizes(page):
     assert items.nth(1).evaluate("el => el.style.height") == "80px"
 
 
-def test_grid_editable_initial_layout_applies_sizes(page):
+def test_grid_editable_layout_applies_sizes(page):
     grid = TileGrid(
         objects=[Markdown("1"), Markdown("2")],
         editable=True,
         local_save=False,
         width=700,
-        initial_layout=[
+        layout=[
             {"index": 0, "width": 40, "height": 110, "visible": True},
             {"index": 1, "width": 60, "height": 160, "visible": True},
         ],

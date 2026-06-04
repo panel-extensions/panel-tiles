@@ -22,15 +22,19 @@ class TileGrid(JSComponent, ListLike):
     A drag+resize grid wrapper around Muuri + interactjs.
     """
 
+    close_action = param.Selector(default=None, objects=[None, "hide", "remove"])
+
     editable = param.Boolean(default=True)
+
+    elevation = param.Integer(default=3, bounds=(0, 20))
 
     fill_gaps = param.Boolean(default=True)
 
-    initial_layout = param.List(default=[])
+    layout = param.List(default=[])
 
     local_save = param.Boolean(default=False)
 
-    layout = param.List(default=[])
+    name = param.String(default="")
 
     objects = Children(doc="Items in the grid.")
 
@@ -59,6 +63,29 @@ class TileGrid(JSComponent, ListLike):
     @classproperty
     def _bundle_path(cls) -> os.PathLike | None:
         return cls._bundle
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.local_save and not self.name:
+            import warnings
+
+            warnings.warn(
+                "TileGrid has local_save=True but no name set. " "Provide a unique name to avoid collisions when " "multiple grids exist on the same page.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    def clear_local_save(self):
+        """Clear the saved layout from the browser's localStorage."""
+        self._send_msg({"action": "clear_local_save"})
+
+    def _handle_msg(self, msg):
+        action = msg.get("action")
+        index = msg.get("index")
+        if index is None or index < 0 or index >= len(self.objects):
+            return
+        if action == "remove":
+            self.pop(index)
 
 
 __all__ = ["TileGrid"]

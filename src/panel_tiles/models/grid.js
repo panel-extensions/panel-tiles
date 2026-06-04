@@ -2,22 +2,19 @@
 import Muuri from "https://esm.sh/muuri@0.9.5"
 import interact from "https://esm.sh/interactjs@1.10.27"
 
-function getLSKey() {
-  return window.location.origin + window.location.pathname
+function getLSKey(name) {
+  return `${window.location.origin + window.location.pathname  }::${  name || "default"}`
 }
 
-function saveToLS(key, value) {
+function saveToLS(name, value) {
   if (!window.localStorage) { return }
-  const existing = JSON.parse(window.localStorage.getItem(getLSKey())) || {}
-  existing[key] = value
-  window.localStorage.setItem(getLSKey(), JSON.stringify(existing))
+  window.localStorage.setItem(getLSKey(name), JSON.stringify(value))
 }
 
-function getFromLS(key) {
+function getFromLS(name) {
   if (!window.localStorage) { return null }
   try {
-    const ls = JSON.parse(window.localStorage.getItem(getLSKey())) || {}
-    return ls[key] ?? null
+    return JSON.parse(window.localStorage.getItem(getLSKey(name)))
   } catch { return null }
 }
 
@@ -88,74 +85,56 @@ function getHorizontalMargin(child_model) {
   return 0
 }
 
-function getInitialWidth(model, container, child_el, child_model) {
+function getInitialWidth(model, container, child_el, child_model, item_el) {
   const screenWidth = model.width || container.clientWidth || container.getBoundingClientRect().width
   if (!screenWidth) { return 100 }
 
   const configured = child_model?.width
-  const child_width = configured != null
-    ? configured + getHorizontalMargin(child_model)
-    : getExplicitPixelWidth(child_el) ||
-      child_el.getBoundingClientRect().width ||
-	child_el.clientWidth
+  let child_width
+  if (configured != null) {
+    child_width = configured + getHorizontalMargin(child_model)
+  } else {
+    child_width = getExplicitPixelWidth(child_el)
+    if (!child_width && item_el) {
+      child_width = child_el.getBoundingClientRect().width || child_el.scrollWidth
+    }
+  }
 
   if (!child_width) { return 100 }
-  return Math.max(((child_width + 30) / screenWidth) * 100, (100/screenWidth) * 100)
+  return Math.max(((child_width + 45) / screenWidth) * 100, (100/screenWidth) * 100)
 }
 
-function getInitialHeight(child_el, child_model) {
+function getInitialHeight(child_el, child_model, item_el) {
   const configured_height = child_model?.height
   if (configured_height != null && Number.isFinite(configured_height) && configured_height > 0) {
-    return configured_height
+    return configured_height + 20
   }
-  const measured_height =
-    getExplicitPixelHeight(child_el) ||
+  const explicit = getExplicitPixelHeight(child_el)
+  if (explicit) { return explicit }
+  if (item_el) {
+    const item_height = item_el.scrollHeight || item_el.clientHeight
+    return item_height ? (item_height + 20) : null
+  }
+  const child_height = (
     child_el.getBoundingClientRect().height ||
-    child_el.clientHeight ||
-    child_el.scrollHeight
-  return measured_height || null
-}
-
-function getRequiredItemContentHeight(item_el) {
-  const slot = item_el.lastElementChild
-  if (!(slot instanceof HTMLElement)) { return null }
-  const child = slot.firstElementChild
-  const slot_height = Math.max(
-    slot.getBoundingClientRect().height || 0,
-    slot.clientHeight || 0,
-    slot.scrollHeight || 0
+      child_el.clientHeight ||
+      child_el.scrollHeight
   )
-  if (!(child instanceof HTMLElement)) { return slot_height || null }
-  const styles = window.getComputedStyle(child)
-  const margin_top = parseFloat(styles.marginTop) || 0
-  const margin_bottom = parseFloat(styles.marginBottom) || 0
-  const child_height = Math.max(
-    child.getBoundingClientRect().height || 0,
-    child.clientHeight || 0,
-    child.scrollHeight || 0
-  )
-  return Math.max(slot_height, child_height + margin_top + margin_bottom) || null
+  return child_height ? child_height + 20 : null
 }
 
-function growItemToFitContent(item_el) {
-  const required = getRequiredItemContentHeight(item_el)
-  if (required == null) { return false }
-  const current = parsePixelValue(item_el.style.height) || 0
-  if (required <= current + 1) { return false }
-  item_el.style.height = `${Math.ceil(required)}px`
-  return true
-}
-
-function make_editable(model, container, grid) {
+function make_editable(model, container, grid, flags) {
   let updating = false
   const undo_stack = []
 
   function sync_layout() {
     const layout = exportLayout(grid)
     updating = true
+    flags.layout_from_client = true
     model.layout = layout
+    flags.layout_from_client = false
     updating = false
-    if (model.local_save) { saveToLS("grid-layout", layout) }
+    if (model.local_save) { saveToLS(model.name, layout) }
   }
 
   interact(".muuri-grid-item").resizable({
@@ -211,6 +190,7 @@ function make_editable(model, container, grid) {
             const target = {range: 50}
             const grid_bbox = grid.getElement().getBoundingClientRect()
             const resized_item = grid.getItem(interaction.element)
+            if (!resized_item) { return target }
             const resized_margin = resized_item.getMargin()
             for (const item of grid.getItems()) {
               const item_el = item.getElement()
@@ -248,14 +228,25 @@ function make_editable(model, container, grid) {
   return sync_layout
 }
 
-export function render({model, el, view}) {
+export async function render({model, el, view}) {
   const container = document.createElement("div")
   container.className = "muuri-grid"
   el.append(container)
 
+  function applyElevation(level) {
+    const root = getComputedStyle(document.documentElement)
+    const shadow = root.getPropertyValue(`--mui-shadows-${level}`).trim()
+    const overlay = root.getPropertyValue(`--mui-overlays-${level}`).trim()
+    if (shadow) { container.style.setProperty("--tile-shadow", shadow) } else { container.style.removeProperty("--tile-shadow") }
+    if (overlay) { container.style.setProperty("--tile-overlay", overlay) } else { container.style.removeProperty("--tile-overlay") }
+  }
+  applyElevation(model.elevation)
+  model.on("elevation", () => applyElevation(model.elevation))
+
   let nextId = 0
   const ids = []
   const child_to_item = new Map()
+  const model_id_to_item = new Map()
   let last_children = []
 
   const grid = new Muuri(container, {
@@ -274,21 +265,31 @@ export function render({model, el, view}) {
   window.addEventListener("resize", onResize, true)
   model.on("remove", () => { window.removeEventListener("resize", onResize) })
 
+  const flags = {layout_from_client: false}
+
   model.on("layout", async (_) => {
+    if (flags.layout_from_client) { return }
     const next = model.layout
     const items = grid.getItems()
     for (let i = 0; i < Math.min(items.length, next.length); i++) {
-      const el = items[i].getElement()
+      const item = items[i]
+      const el = item.getElement()
       const spec = next[i] || {}
       resizeItem(grid, el, spec.width ?? 100, spec.height ?? null, false)
+      if (spec.visible === false && item.isVisible()) {
+        grid.hide([item], {layout: false})
+      } else if (spec.visible !== false && !item.isVisible()) {
+        grid.show([item], {layout: false})
+      }
     }
     grid.refreshItems()
     grid.layout()
+    if (model.local_save) { saveToLS(model.name, next) }
   })
 
   let sync = null
   if (model.editable) {
-    sync = make_editable(model, container, grid)
+    sync = make_editable(model, container, grid, flags)
   }
 
   function create_item(child) {
@@ -301,26 +302,57 @@ export function render({model, el, view}) {
     drag.className = "muuri-handle drag"
     item.appendChild(drag)
 
+    if (model.close_action) {
+      const close = document.createElement("div")
+      close.className = "muuri-handle close"
+      close.addEventListener("click", (e) => {
+        e.stopPropagation()
+        const models = model.objects || []
+        let idx = -1
+        for (const [mid, it] of model_id_to_item.entries()) {
+          if (it === item) {
+            idx = models.findIndex(m => m?.id === mid)
+            break
+          }
+        }
+        if (idx === -1) { return }
+        if (model.close_action === "hide") {
+          const muuri_item = grid.getItem(item)
+          if (muuri_item) {
+            grid.hide([muuri_item], {layout: true})
+            if (sync) { sync() }
+          }
+        } else {
+          model.send_msg({action: "remove", index: idx})
+        }
+      })
+      item.appendChild(close)
+    }
+
     const resize = document.createElement("div")
     resize.className = "muuri-handle resize"
     item.appendChild(resize)
 
     const slot = document.createElement("div")
-    slot.style.display = "flow-root"
+    slot.style.display = "contents"
     item.appendChild(slot)
     slot.replaceChildren(child)
     child_to_item.set(child, item)
     return item
   }
 
-  async function reconcile(children) {
+  async function reconcile(children, initial=false) {
     const next_children = Array.isArray(children) ? children : []
-    const next_set = new Set(next_children)
+    const next_models = model.objects || []
+    const next_model_ids = new Set(next_models.map(m => m?.id))
 
-    // Remove stale items
-    for (const [child, item] of child_to_item.entries()) {
-      if (next_set.has(child)) { continue }
-      child_to_item.delete(child)
+    // Remove stale items by model id
+    for (const [mid, item] of model_id_to_item.entries()) {
+      if (next_model_ids.has(mid)) { continue }
+      model_id_to_item.delete(mid)
+      for (const [child, it] of child_to_item.entries()) {
+        if (it === item) { child_to_item.delete(child); break }
+      }
       const muuri_item = grid.getItem(item)
       if (muuri_item) {
         grid.remove([muuri_item], {removeElements: true, layout: false})
@@ -329,23 +361,34 @@ export function render({model, el, view}) {
       }
     }
 
-    // Add new items
+    // Add new items or reuse existing by model id
     const added = []
+    const added_models = []
     const added_indices = []
     for (let i = 0; i < next_children.length; i++) {
       const child = next_children[i]
-      const existing = child_to_item.get(child)
+      const child_model = next_models[i]
+      const cv = view.get_child_view(child_model)
+      const mid = child_model?.id
+      const existing = mid ? model_id_to_item.get(mid) : child_to_item.get(child)
       if (existing) {
         const slot = existing.lastElementChild
         if (slot && slot.firstChild !== child) {
           slot.replaceChildren(child)
         }
+        child_to_item.set(child, existing)
         continue
       }
       const item = create_item(child)
+      item.style.opacity = "0"
       container.appendChild(item)
+      if (mid) { model_id_to_item.set(mid, item) }
       added.push(item)
+      added_models.push(child_model)
       added_indices.push(i)
+      if (initial && cv) {
+        cv.rerender_ ? cv.rerender_() : cv.rerender()
+      }
     }
 
     if (added.length) {
@@ -363,28 +406,49 @@ export function render({model, el, view}) {
     // Wait for entire child view tree to finish rendering
     if (added.length) {
       await view.root.ready
+      await new Promise(resolve => requestAnimationFrame(resolve))
     }
 
-    // Size items
+    // Size only genuinely new items
+    const currentLayout = model.layout || []
     for (const i of added_indices) {
       const child = next_children[i]
       const item_el = child_to_item.get(child)
       if (!item_el) { continue }
-      const child_model = model.objects?.[i]
-      const width = getInitialWidth(model, container, child, child_model)
-      const height = getInitialHeight(child, child_model)
-      resizeItem(grid, item_el, width, height, false)
-    }
-
-    for (const item of grid.getItems()) {
-      growItemToFitContent(item.getElement())
+      const spec = currentLayout[i]
+      if (spec && (spec.width != null || spec.height != null)) {
+        resizeItem(grid, item_el, spec.width ?? 100, spec.height ?? null, false)
+        if (spec.visible === false) {
+          const muuri_item = grid.getItem(item_el)
+          if (muuri_item) { grid.hide([muuri_item], {layout: false}) }
+        }
+      } else {
+        const child_model = next_models[i]
+        const width = getInitialWidth(model, container, child, child_model, item_el)
+        const height = getInitialHeight(child, child_model, item_el)
+        resizeItem(grid, item_el, width, height, false)
+      }
     }
 
     grid.refreshSortData()
     grid.sort("id", {layout: false})
     grid.refreshItems()
     grid.layout()
+
+    requestAnimationFrame(() => {
+      for (const item_el of added) {
+        item_el.style.opacity = ""
+      }
+    })
   }
+
+  model.on("msg:custom", (msg) => {
+    if (msg.action === "clear_local_save") {
+      if (window.localStorage) {
+        window.localStorage.removeItem(getLSKey(model.name))
+      }
+    }
+  })
 
   model.on("objects", async () => {
     const children = model.get_child("objects")
@@ -394,10 +458,21 @@ export function render({model, el, view}) {
   })
 
   requestAnimationFrame(async () => {
+    // Restore saved layout from localStorage if available
+    if (model.local_save) {
+      const saved = getFromLS(model.name)
+      if (saved && Array.isArray(saved) && saved.length) {
+        flags.layout_from_client = true
+        model.layout = saved
+        flags.layout_from_client = false
+      }
+    }
+
     const children = model.get_child("objects")
-    if (children && !children.length) {
+    if (children && children.length) {
       last_children = view.model.data.objects
-      await reconcile(children)
+      await reconcile(children, true)
+      window.dispatchEvent(new Event("resize"));
     }
   })
 }

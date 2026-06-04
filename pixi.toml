@@ -87,34 +87,16 @@ depends-on = ["_install", "_install-ui"]
 # =============================================
 # =================== DOCS ====================
 # =============================================
-[feature.doc.activation.env]
-MOZ_HEADLESS = "1"
-PANEL_IPYWIDGET = "1"
-OBJC_DISABLE_INITIALIZE_FORK_SAFETY = "YES"
-SPHINX_APIDOC_OPTIONS = "members,show-inheritance"
 
 [feature.doc.dependencies]
-nbsite = ">=0.9.0a1"
-numpydoc = "*"
-matplotlib = "*"  # not optional in nbsite
-hvplot = "*"
-bokeh_sampledata = "*"
-plotly = "*"
+zensical = "<0.0.17"
+mkdocstrings = "*"
+mkdocstrings-python = "*"
 
 [feature.doc.tasks]
-_docs-generate = 'nbsite build --what=html --output=builtdocs --org holoviz --project-name panel-tiles --disable-parallel'
-_docs-generate-parallel = 'nbsite build --what=html --output=builtdocs --org holoviz --project-name panel-tiles'
-docs-server = 'python -m http.server 5500 --directory ./builtdocs'
-
-[feature.doc.tasks.docs-build]
-depends-on = [
-    '_docs-generate',
-]
-
-[feature.doc.tasks.docs-build-parallel]
-depends-on = [
-    '_docs-generate-parallel',
-]
+docs-build = { cmd = 'zensical build --clean', depends-on = ['postinstall'] }
+docs-serve = { cmd = 'zensical serve', depends-on = ['postinstall'] }
+docs-clean = { cmd = 'rm -rf builtdocs', depends-on = ['postinstall'] }
 
 # =============================================
 # ================== BUILD ====================
