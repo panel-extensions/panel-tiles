@@ -70,7 +70,7 @@ jobs:
         uses: peaceiris/actions-gh-pages@v4
         if: |
           (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'dev') ||
-          (github.event_name == 'push' && (contains(steps.vars.outputs.tag, 'a') || contains(steps.vars.outputs.tag, 'b') || contains(steps.vars.outputs.tag, 'rc')))
+          (github.event_name == 'push' && (contains(github.ref_name, 'a') || contains(github.ref_name, 'b') || contains(github.ref_name, 'rc')))
         with:
           personal_token: ${{ secrets.HOLOVIZ_ACCESS_TOKEN }}
           external_repository: holoviz-dev/panel-tiles
@@ -79,6 +79,6 @@ jobs:
       - name: Deploy main
         if: |
           (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'main') ||
-          (github.event_name == 'push' && !(contains(steps.vars.outputs.tag, 'a') || contains(steps.vars.outputs.tag, 'b') || contains(steps.vars.outputs.tag, 'rc')))
+          (github.event_name == 'push' && !(contains(github.ref_name, 'a') || contains(github.ref_name, 'b') || contains(github.ref_name, 'rc')))
         id: deployment
         uses: actions/deploy-pages@v4
