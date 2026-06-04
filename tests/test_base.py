@@ -13,7 +13,6 @@ def test_grid_defaults():
     assert grid.editable is True
     assert grid.fill_gaps is True
     assert grid.local_save is False
-    assert grid.initial_layout == []
     assert grid.layout == []
     assert len(grid.objects) == 1
 
@@ -30,13 +29,14 @@ def test_grid_registers_extension_directory():
 
 
 def test_grid_serializes_parameters_to_bokeh_model():
-    initial_layout = [{"index": 0, "width": 50, "height": 120, "visible": True}]
-    layout = [{"index": 1, "width": 37.5, "height": None, "visible": True}]
+    layout = [
+        {"index": 0, "width": 50, "height": 120, "visible": True},
+        {"index": 1, "width": 37.5, "height": None, "visible": True},
+    ]
     grid = TileGrid(
         objects=[Markdown("A"), Spacer(width=300, height=100)],
         editable=False,
         fill_gaps=False,
-        initial_layout=initial_layout,
         layout=layout,
         local_save=True,
         width=800,
@@ -49,7 +49,6 @@ def test_grid_serializes_parameters_to_bokeh_model():
     assert model.data.editable is False
     assert model.data.fill_gaps is False
     assert model.data.local_save is True
-    assert model.data.initial_layout == initial_layout
     assert model.data.layout == layout
     assert len(model.data.objects) == 2
     assert model.data.objects[1].width == 300
