@@ -1,0 +1,84 @@
+name: Build documentation
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+a[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+b[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+rc[0-9]+"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Site to build and deploy"
+        type: choice
+        options:
+          - dev
+          - main
+          - dryrun
+        required: true
+        default: dryrun
+  schedule:
+    - cron: "0 17 * * SUN"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@a0af7a228712d6121d37aba47adf55c1332c9c2e # v0.9.4
+        with:
+          environments: docs
+      - name: Build documentation
+        run: pixi run -e docs docs-build
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: docs
+          if-no-files-found: error
+          path: builtdocs
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ./builtdocs
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy dev
+        uses: peaceiris/actions-gh-pages@v4
+        if: |
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'dev') ||
+          (github.event_name == 'push' && (contains(steps.vars.outputs.tag, 'a') || contains(steps.vars.outputs.tag, 'b') || contains(steps.vars.outputs.tag, 'rc')))
+        with:
+          personal_token: ${{ secrets.HOLOVIZ_ACCESS_TOKEN }}
+          external_repository: holoviz-dev/panel-tiles
+          publish_dir: ./builtdocs
+          force_orphan: true
+      - name: Deploy main
+        if: |
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'main') ||
+          (github.event_name == 'push' && !(contains(steps.vars.outputs.tag, 'a') || contains(steps.vars.outputs.tag, 'b') || contains(steps.vars.outputs.tag, 'rc')))
+        id: deployment
+        uses: actions/deploy-pages@v4
