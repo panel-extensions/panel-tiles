@@ -42,8 +42,12 @@ function exportLayout(grid, modelIds) {
   return layout.filter(Boolean)
 }
 
-function setAuthoredWidth(grid, el, width) {
+function setAuthoredWidth(el, width) {
   width = Math.min(100, Math.max(width, 1))
+  el.setAttribute("data-width", width.toString())
+}
+
+function clampWidthForItem(grid, el, width) {
   const containerWidth = grid.getElement().clientWidth
   if (containerWidth > 0) {
     const itemMin = parseFloat(el.getAttribute("data-min-width")) || 0
@@ -57,7 +61,7 @@ function setAuthoredWidth(grid, el, width) {
       if (width > maxPct) { width = maxPct }
     }
   }
-  el.setAttribute("data-width", width.toString())
+  return width
 }
 
 function applyDisplayWidth(grid, el, minColWidth) {
@@ -81,7 +85,7 @@ function applyDisplayWidth(grid, el, minColWidth) {
 }
 
 function resizeItem(grid, el, width, height, minColWidth, notify=true) {
-  setAuthoredWidth(grid, el, width)
+  setAuthoredWidth(el, width)
   applyDisplayWidth(grid, el, minColWidth)
   if (height == null) { el.style.height = "" } else { el.style.height = `${height}px` }
   if (notify) { grid.refreshItems(); grid.layout() }
@@ -193,7 +197,7 @@ function make_editable(model, container, grid, flags, ids) {
         const item = grid.getItem(ev.target)
         const {top, bottom} = item.getMargin()
         const screenW = grid.getElement().clientWidth
-        const w = (ev.rect.width / screenW) * 100
+        const w = clampWidthForItem(grid, ev.target, (ev.rect.width / screenW) * 100)
         const h = ev.rect.height - top - bottom
         ev.target.style.zIndex = 100
         resizeItem(grid, ev.target, w, h, minColWidth(), false)
