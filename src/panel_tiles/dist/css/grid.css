@@ -97,3 +97,14 @@
 .muuri-handle.drag:hover {
   cursor: grab;
 }
+
+.muuri-no-card .muuri-grid-item {
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.muuri-no-handles .muuri-handle {
+  display: none;
+}

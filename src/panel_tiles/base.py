@@ -22,13 +22,34 @@ class TileGrid(JSComponent, ListLike):
     A drag+resize grid wrapper around Muuri + interactjs.
     """
 
+    card = param.Boolean(
+        default=True,
+        doc="""
+        Whether to display tiles with a card-like appearance including
+        box-shadow, background color, and padding.""",
+    )
+
     close_action = param.Selector(default=None, objects=[None, "hide", "remove"])
 
-    editable = param.Boolean(default=True)
+    editable = param.Boolean(
+        default=True,
+        doc="""
+        Whether to show drag, resize, and close handles and allow
+        interactive rearrangement of tiles.""",
+    )
 
     elevation = param.Integer(default=3, bounds=(0, 20))
 
     fill_gaps = param.Boolean(default=True)
+
+    min_col_width = param.Integer(
+        default=None,
+        bounds=(50, None),
+        doc="""
+        Minimum tile width in pixels. When the container is too narrow
+        for a tile at its authored percentage, the tile is responsively
+        widened to prevent overflow. The persisted layout is unaffected.""",
+    )
 
     layout = param.List(default=[])
 
