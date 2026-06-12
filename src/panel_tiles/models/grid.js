@@ -18,12 +18,15 @@ function getFromLS(name) {
   } catch { return null }
 }
 
-function exportLayout(grid) {
-  const layout = []
+function exportLayout(grid, modelIds) {
+  const layout = new Array(modelIds.length)
   const items = grid.getItems()
-  const ids = items.map(it => it.getElement().getAttribute("data-id"))
-  for (const item of items) {
+  for (let visualIdx = 0; visualIdx < items.length; visualIdx++) {
+    const item = items[visualIdx]
     const el = item.getElement()
+    const dataId = el.getAttribute("data-id")
+    const modelIdx = modelIds.indexOf(dataId)
+    if (modelIdx === -1) { continue }
     let height = el.style.height.slice(0, -2)
     if (!height) {
       const {top, bottom} = item.getMargin()
@@ -31,24 +34,34 @@ function exportLayout(grid) {
     } else {
       height = parseFloat(height)
     }
-    let width
-    if (el.style.width.length) {
-      // `calc( XX% - 30px )`
-      width = parseFloat(el.style.width.split("(")[1].split("%")[0])
-    } else { width = 100 }
-    layout.push({
-      index: ids.indexOf(el.getAttribute("data-id")),
-      width, height, visible: item.isVisible()
-    })
+    const width = parseFloat(el.getAttribute("data-width")) || 100
+    layout[modelIdx] = {
+      index: visualIdx, width, height, visible: item.isVisible()
+    }
   }
-  return layout
+  return layout.filter(Boolean)
 }
 
-function resizeItem(grid, el, width, height, notify=true) {
-  const screenWidth = grid.getElement().clientWidth
-  if (((width/100) * screenWidth) < 100) { width = (100/screenWidth) * 100 }
-  width = Math.min(100, width)
-  el.style.width = `calc(${width}% - 20px)`
+function setAuthoredWidth(el, width) {
+  width = Math.min(100, Math.max(width, 1))
+  el.setAttribute("data-width", width.toString())
+}
+
+function applyDisplayWidth(grid, el, minColWidth) {
+  if (!minColWidth) { return }
+  const containerWidth = grid.getElement().clientWidth
+  const authored = parseFloat(el.getAttribute("data-width")) || 100
+  let display = authored
+  if (containerWidth > 0) {
+    const minPct = (minColWidth / containerWidth) * 100
+    if (display < minPct) { display = Math.min(100, minPct) }
+  }
+  el.style.width = `calc(${display}% - 20px)`
+}
+
+function resizeItem(grid, el, width, height, minColWidth, notify=true) {
+  setAuthoredWidth(el, width)
+  applyDisplayWidth(grid, el, minColWidth)
   if (height == null) { el.style.height = "" } else { el.style.height = `${height}px` }
   if (notify) { grid.refreshItems(); grid.layout() }
 }
@@ -123,12 +136,13 @@ function getInitialHeight(child_el, child_model, item_el) {
   return child_height ? child_height + 20 : null
 }
 
-function make_editable(model, container, grid, flags) {
+function make_editable(model, container, grid, flags, ids) {
   let updating = false
   const undo_stack = []
+  const minColWidth = () => model.min_col_width || null
 
   function sync_layout() {
-    const layout = exportLayout(grid)
+    const layout = exportLayout(grid, ids)
     updating = true
     flags.layout_from_client = true
     model.layout = layout
@@ -150,12 +164,7 @@ function make_editable(model, container, grid, flags) {
         } else {
           height = parseFloat(height);
         }
-        let width;
-        if (el.style.width.length) {
-          width = parseFloat(el.style.width.split("(")[1].split("%")[0]);
-        } else {
-          width = 100;
-        }
+        const width = parseFloat(el.getAttribute("data-width")) || 100
         undo_stack.push({action: "resize", item, width, height})
       },
       move(ev) {
@@ -166,7 +175,7 @@ function make_editable(model, container, grid, flags) {
         const w = (ev.rect.width / screenW) * 100
         const h = ev.rect.height - top - bottom
         ev.target.style.zIndex = 100
-        resizeItem(grid, ev.target, w, h, false)
+        resizeItem(grid, ev.target, w, h, minColWidth(), false)
         grid.refreshItems(); grid.layout()
         window.dispatchEvent(new Event("resize"))
       },
@@ -231,6 +240,8 @@ function make_editable(model, container, grid, flags) {
 export async function render({model, el, view}) {
   const container = document.createElement("div")
   container.className = "muuri-grid"
+  if (!model.card) { container.classList.add("muuri-no-card") }
+  if (!model.editable) { container.classList.add("muuri-no-handles") }
   el.append(container)
 
   function applyElevation(level) {
@@ -242,6 +253,8 @@ export async function render({model, el, view}) {
   }
   applyElevation(model.elevation)
   model.on("elevation", () => applyElevation(model.elevation))
+  model.on("card", () => container.classList.toggle("muuri-no-card", !model.card))
+  model.on("editable", () => container.classList.toggle("muuri-no-handles", !model.editable))
 
   let nextId = 0
   const ids = []
@@ -261,25 +274,42 @@ export async function render({model, el, view}) {
     }
   })
 
-  const onResize = () => { grid.refreshItems(); grid.layout() }
+  const minColWidth = () => model.min_col_width || null
+
+  function reclampAll() {
+    if (!model.min_col_width) { return }
+    for (const item of grid.getItems()) {
+      applyDisplayWidth(grid, item.getElement(), minColWidth())
+    }
+    grid.refreshItems()
+    grid.layout()
+  }
+
+  const onResize = () => { reclampAll() }
   window.addEventListener("resize", onResize, true)
   model.on("remove", () => { window.removeEventListener("resize", onResize) })
+  model.on("min_col_width", () => { reclampAll() })
 
   const flags = {layout_from_client: false}
 
   model.on("layout", async (_) => {
     if (flags.layout_from_client) { return }
     const next = model.layout
-    const items = grid.getItems()
-    for (let i = 0; i < Math.min(items.length, next.length); i++) {
-      const item = items[i]
-      const el = item.getElement()
+    for (let i = 0; i < Math.min(ids.length, next.length); i++) {
+      const dataId = ids[i]
+      const el = container.querySelector(`[data-id="${dataId}"]`)
+      if (!el) { continue }
+      const item = grid.getItem(el)
+      if (!item) { continue }
       const spec = next[i] || {}
-      resizeItem(grid, el, spec.width ?? 100, spec.height ?? null, false)
+      resizeItem(grid, el, spec.width ?? 100, spec.height ?? null, minColWidth(), false)
       if (spec.visible === false && item.isVisible()) {
         grid.hide([item], {layout: false})
       } else if (spec.visible !== false && !item.isVisible()) {
         grid.show([item], {layout: false})
+      }
+      if (spec.index != null) {
+        grid.move(item, spec.index, {layout: false})
       }
     }
     grid.refreshItems()
@@ -289,7 +319,7 @@ export async function render({model, el, view}) {
 
   let sync = null
   if (model.editable) {
-    sync = make_editable(model, container, grid, flags)
+    sync = make_editable(model, container, grid, flags, ids)
   }
 
   function create_item(child) {
@@ -300,11 +330,13 @@ export async function render({model, el, view}) {
 
     const drag = document.createElement("div")
     drag.className = "muuri-handle drag"
+    drag.title = "Drag to move"
     item.appendChild(drag)
 
     if (model.close_action) {
       const close = document.createElement("div")
       close.className = "muuri-handle close"
+      close.title = "Close"
       close.addEventListener("click", (e) => {
         e.stopPropagation()
         const models = model.objects || []
@@ -331,6 +363,7 @@ export async function render({model, el, view}) {
 
     const resize = document.createElement("div")
     resize.className = "muuri-handle resize"
+    resize.title = "Drag to resize"
     item.appendChild(resize)
 
     const slot = document.createElement("div")
@@ -417,7 +450,7 @@ export async function render({model, el, view}) {
       if (!item_el) { continue }
       const spec = currentLayout[i]
       if (spec && (spec.width != null || spec.height != null)) {
-        resizeItem(grid, item_el, spec.width ?? 100, spec.height ?? null, false)
+        resizeItem(grid, item_el, spec.width ?? 100, spec.height ?? null, minColWidth(), false)
         if (spec.visible === false) {
           const muuri_item = grid.getItem(item_el)
           if (muuri_item) { grid.hide([muuri_item], {layout: false}) }
@@ -426,7 +459,7 @@ export async function render({model, el, view}) {
         const child_model = next_models[i]
         const width = getInitialWidth(model, container, child, child_model, item_el)
         const height = getInitialHeight(child, child_model, item_el)
-        resizeItem(grid, item_el, width, height, false)
+        resizeItem(grid, item_el, width, height, minColWidth(), false)
       }
     }
 
@@ -435,11 +468,9 @@ export async function render({model, el, view}) {
     grid.refreshItems()
     grid.layout()
 
-    requestAnimationFrame(() => {
-      for (const item_el of added) {
-        item_el.style.opacity = ""
-      }
-    })
+    for (const item_el of added) {
+      item_el.style.opacity = ""
+    }
   }
 
   model.on("msg:custom", (msg) => {
