@@ -42,25 +42,46 @@ function exportLayout(grid, modelIds) {
   return layout.filter(Boolean)
 }
 
-function setAuthoredWidth(el, width) {
+function setAuthoredWidth(grid, el, width) {
   width = Math.min(100, Math.max(width, 1))
+  const containerWidth = grid.getElement().clientWidth
+  if (containerWidth > 0) {
+    const itemMin = parseFloat(el.getAttribute("data-min-width")) || 0
+    if (itemMin > 0) {
+      const minPct = (itemMin / containerWidth) * 100
+      if (width < minPct) { width = Math.min(100, minPct) }
+    }
+    const itemMax = parseFloat(el.getAttribute("data-max-width")) || 0
+    if (itemMax > 0) {
+      const maxPct = (itemMax / containerWidth) * 100
+      if (width > maxPct) { width = maxPct }
+    }
+  }
   el.setAttribute("data-width", width.toString())
 }
 
 function applyDisplayWidth(grid, el, minColWidth) {
-  if (!minColWidth) { return }
   const containerWidth = grid.getElement().clientWidth
   const authored = parseFloat(el.getAttribute("data-width")) || 100
   let display = authored
   if (containerWidth > 0) {
-    const minPct = (minColWidth / containerWidth) * 100
-    if (display < minPct) { display = Math.min(100, minPct) }
+    const itemMin = parseFloat(el.getAttribute("data-min-width")) || 0
+    const effectiveMin = Math.max(minColWidth || 0, itemMin)
+    if (effectiveMin > 0) {
+      const minPct = (effectiveMin / containerWidth) * 100
+      if (display < minPct) { display = Math.min(100, minPct) }
+    }
+    const itemMax = parseFloat(el.getAttribute("data-max-width")) || 0
+    if (itemMax > 0) {
+      const maxPct = (itemMax / containerWidth) * 100
+      if (display > maxPct) { display = maxPct }
+    }
   }
   el.style.width = `calc(${display}% - 20px)`
 }
 
 function resizeItem(grid, el, width, height, minColWidth, notify=true) {
-  setAuthoredWidth(el, width)
+  setAuthoredWidth(grid, el, width)
   applyDisplayWidth(grid, el, minColWidth)
   if (height == null) { el.style.height = "" } else { el.style.height = `${height}px` }
   if (notify) { grid.refreshItems(); grid.layout() }
@@ -409,11 +430,27 @@ export async function render({model, el, view}) {
         if (slot && slot.firstChild !== child) {
           slot.replaceChildren(child)
         }
+        if (child_model?.min_width) {
+          existing.setAttribute("data-min-width", child_model.min_width.toString())
+        } else {
+          existing.removeAttribute("data-min-width")
+        }
+        if (child_model?.max_width) {
+          existing.setAttribute("data-max-width", child_model.max_width.toString())
+        } else {
+          existing.removeAttribute("data-max-width")
+        }
         child_to_item.set(child, existing)
         continue
       }
       const item = create_item(child)
       item.style.opacity = "0"
+      if (child_model?.min_width) {
+        item.setAttribute("data-min-width", child_model.min_width.toString())
+      }
+      if (child_model?.max_width) {
+        item.setAttribute("data-max-width", child_model.max_width.toString())
+      }
       container.appendChild(item)
       if (mid) { model_id_to_item.set(mid, item) }
       added.push(item)

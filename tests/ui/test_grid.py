@@ -322,3 +322,130 @@ def test_grid_drag_reorder_updates_layout(page):
     for spec in grid.layout:
         assert spec["width"] == 100
         assert spec["height"] == 80
+
+
+def test_grid_respects_child_min_width(page):
+    grid = TileGrid(
+        objects=[
+            Spacer(styles={"background": "red"}, min_width=400, height=80),
+            Spacer(styles={"background": "green"}, height=80),
+        ],
+        layout=[
+            {"index": 0, "width": 30, "height": 80, "visible": True},
+            {"index": 1, "width": 30, "height": 80, "visible": True},
+        ],
+        editable=False,
+        local_save=False,
+        width=600,
+    )
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+
+    # First item: 30% of 600px = 180px < min_width 400px, clamped to ~66.7%
+    wait_until(
+        lambda: "66.6" in items.nth(0).evaluate("el => el.style.width"),
+        page,
+    )
+    # data-width preserves the authored 30%
+    wait_until(
+        lambda: items.nth(0).evaluate("el => el.getAttribute('data-width')") == "30",
+        page,
+    )
+    # Second item has no min_width so stays at 30%
+    wait_until(
+        lambda: items.nth(1).evaluate("el => el.style.width") == "calc(30% - 20px)",
+        page,
+    )
+
+
+def test_grid_respects_child_max_width(page):
+    grid = TileGrid(
+        objects=[
+            Spacer(styles={"background": "red"}, max_width=200, height=80),
+            Spacer(styles={"background": "green"}, height=80),
+        ],
+        layout=[
+            {"index": 0, "width": 60, "height": 80, "visible": True},
+            {"index": 1, "width": 60, "height": 80, "visible": True},
+        ],
+        editable=False,
+        local_save=False,
+        width=800,
+    )
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+
+    # First item: 60% of 800px = 480px > max_width 200px, clamped to 25%
+    wait_until(
+        lambda: items.nth(0).evaluate("el => el.style.width") == "calc(25% - 20px)",
+        page,
+    )
+    # data-width preserves the authored 60%
+    wait_until(
+        lambda: items.nth(0).evaluate("el => el.getAttribute('data-width')") == "60",
+        page,
+    )
+    # Second item has no max_width so stays at 60%
+    wait_until(
+        lambda: items.nth(1).evaluate("el => el.style.width") == "calc(60% - 20px)",
+        page,
+    )
+
+
+def test_grid_resize_clamped_by_min_max_width(page):
+    grid = TileGrid(
+        objects=[
+            Spacer(styles={"background": "red"}, min_width=200, max_width=400, height=80),
+        ],
+        layout=[
+            {"index": 0, "width": 50, "height": 80, "visible": True},
+        ],
+        editable=True,
+        local_save=False,
+        width=800,
+    )
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(1)
+    wait_until(lambda: items.nth(0).evaluate("el => el.style.height") == "80px", page)
+
+    item = items.nth(0)
+    resize_handle = item.locator(".muuri-handle.resize")
+
+    # Try to resize beyond max_width (400px = 50% of 800px)
+    # Start from the right edge of the item and drag further right
+    handle_box = resize_handle.bounding_box()
+    start_x = handle_box["x"] + handle_box["width"] / 2
+    start_y = handle_box["y"] + handle_box["height"] / 2
+
+    # Drag right to attempt 90% width (720px > max 400px)
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x + 320, start_y, steps=5)
+    page.mouse.up()
+
+    # Authored width should be clamped at 50% (400px / 800px)
+    wait_until(lambda: len(grid.layout) == 1, page)
+    wait_until(lambda: grid.layout[0]["width"] <= 50, page)
+
+    # Now try to resize below min_width (200px = 25% of 800px)
+    # Drag the handle far to the left
+    handle_box = resize_handle.bounding_box()
+    start_x = handle_box["x"] + handle_box["width"] / 2
+    start_y = handle_box["y"] + handle_box["height"] / 2
+
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x - 400, start_y, steps=5)
+    page.mouse.up()
+
+    # Authored width should be clamped at 25% (200px / 800px)
+    wait_until(lambda: grid.layout[0]["width"] >= 25, page)
