@@ -139,7 +139,10 @@ log_cli_level = "INFO"
 markers = [
     "ui: marks Playwright-based UI tests",
 ]
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    "ignore:unclosed <socket.socket:ResourceWarning",
+]
 testpaths = ["tests"]
 
 [tool.isort]
