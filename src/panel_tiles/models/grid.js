@@ -477,40 +477,42 @@ export async function render({model, el, view}) {
       ids.push(item.getAttribute("data-id"))
     })
 
-    // Wait for entire child view tree to finish rendering
-    if (added.length) {
-      await view.root.ready
-      await new Promise(resolve => requestAnimationFrame(resolve))
-    }
-
-    // Size only genuinely new items
-    const currentLayout = model.layout || []
-    for (const i of added_indices) {
-      const child = next_children[i]
-      const item_el = child_to_item.get(child)
-      if (!item_el) { continue }
-      const spec = currentLayout[i]
-      if (spec && (spec.width != null || spec.height != null)) {
-        resizeItem(grid, item_el, spec.width ?? 100, spec.height ?? null, minColWidth(), false)
-        if (spec.visible === false) {
-          const muuri_item = grid.getItem(item_el)
-          if (muuri_item) { grid.hide([muuri_item], {layout: false}) }
-        }
-      } else {
-        const child_model = next_models[i]
-        const width = getInitialWidth(model, container, child, child_model, item_el)
-        const height = getInitialHeight(child, child_model, item_el)
-        resizeItem(grid, item_el, width, height, minColWidth(), false)
+    try {
+      // Wait for entire child view tree to finish rendering
+      if (added.length) {
+        await view.root.ready
+        await new Promise(resolve => requestAnimationFrame(resolve))
       }
-    }
 
-    grid.refreshSortData()
-    grid.sort("id", {layout: false})
-    grid.refreshItems()
-    grid.layout()
+      // Size only genuinely new items
+      const currentLayout = model.layout || []
+      for (const i of added_indices) {
+        const child = next_children[i]
+        const item_el = child_to_item.get(child)
+        if (!item_el) { continue }
+        const spec = currentLayout[i]
+        if (spec && (spec.width != null || spec.height != null)) {
+          resizeItem(grid, item_el, spec.width ?? 100, spec.height ?? null, minColWidth(), false)
+          if (spec.visible === false) {
+            const muuri_item = grid.getItem(item_el)
+            if (muuri_item) { grid.hide([muuri_item], {layout: false}) }
+          }
+        } else {
+          const child_model = next_models[i]
+          const width = getInitialWidth(model, container, child, child_model, item_el)
+          const height = getInitialHeight(child, child_model, item_el)
+          resizeItem(grid, item_el, width, height, minColWidth(), false)
+        }
+      }
 
-    for (const item_el of added) {
-      item_el.style.opacity = ""
+      grid.refreshSortData()
+      grid.sort("id", {layout: false})
+      grid.refreshItems()
+      grid.layout()
+    } finally {
+      for (const item_el of added) {
+        item_el.style.opacity = ""
+      }
     }
   }
 
