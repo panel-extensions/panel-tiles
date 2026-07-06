@@ -42,6 +42,15 @@ class TileGrid(JSComponent, ListLike):
 
     fill_gaps = param.Boolean(default=True)
 
+    breakpoints = param.List(
+        default=[],
+        doc="""
+        List of pixel-width thresholds that define responsive breakpoint
+        bands, e.g. [768, 1200] yields three bands: sm (<768), md (768-1200),
+        lg (>1200). When set, a toolbar appears in edit mode to switch between
+        breakpoint views and author per-breakpoint layouts.""",
+    )
+
     min_col_width = param.Integer(
         default=None,
         bounds=(50, None),
@@ -54,6 +63,14 @@ class TileGrid(JSComponent, ListLike):
     layout = param.List(default=[])
 
     local_save = param.Boolean(default=False)
+
+    responsive_layouts = param.Dict(
+        default={},
+        doc="""
+        Dict mapping breakpoint labels (e.g. "sm", "md", "lg") to layout
+        lists. Auto-populated as users arrange tiles at different breakpoint
+        views. The keys are derived from the `breakpoints` thresholds.""",
+    )
 
     name = param.String(default="")
 

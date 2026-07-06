@@ -3,7 +3,28 @@ import Muuri from "https://esm.sh/muuri@0.9.5"
 import interact from "https://esm.sh/interactjs@1.10.27"
 
 function getLSKey(name) {
-  return `${window.location.origin + window.location.pathname  }::${  name || "default"}`
+  return `${window.location.origin + window.location.pathname}::${name || "default"}`
+}
+
+function getBreakpointBands(breakpoints) {
+  if (!breakpoints || !breakpoints.length) { return [] }
+  const sorted = [...breakpoints].sort((a, b) => a - b)
+  const names = ["xs", "sm", "md", "lg", "xl", "xxl"]
+  const bands = []
+  for (let i = 0; i <= sorted.length; i++) {
+    const label = names[i] || `bp${i}`
+    if (i === 0) { bands.push({label, max: sorted[0]}) } else if (i === sorted.length) { bands.push({label, min: sorted[i - 1]}) } else { bands.push({label, min: sorted[i - 1], max: sorted[i]}) }
+  }
+  return bands
+}
+
+function getBandForWidth(breakpoints, width) {
+  const bands = getBreakpointBands(breakpoints)
+  if (!bands.length) { return null }
+  for (const band of bands) {
+    if (band.max && width < band.max) { return band }
+  }
+  return bands[bands.length - 1]
 }
 
 function saveToLS(name, value) {
@@ -262,6 +283,44 @@ function make_editable(model, container, grid, flags, ids) {
   return sync_layout
 }
 
+function createBreakpointToolbar(breakpoints, container, onSelect) {
+  const bands = getBreakpointBands(breakpoints)
+  if (!bands.length) { return null }
+
+  const toolbar = document.createElement("div")
+  toolbar.className = "muuri-breakpoint-toolbar"
+
+  const chips = []
+  for (const band of bands) {
+    const chip = document.createElement("button")
+    chip.className = "muuri-breakpoint-chip"
+    chip.dataset.band = band.label
+    let desc = band.label.toUpperCase()
+    if (band.max && !band.min) { desc += ` <${band.max}px` } else if (band.min && !band.max) { desc += ` >${band.min}px` } else if (band.min && band.max) { desc += ` ${band.min}-${band.max}px` }
+    chip.textContent = desc
+    chip.addEventListener("click", () => onSelect(band.label))
+    toolbar.appendChild(chip)
+    chips.push(chip)
+  }
+
+  // "Full width" chip to exit constrained preview
+  const fullChip = document.createElement("button")
+  fullChip.className = "muuri-breakpoint-chip"
+  fullChip.dataset.band = "__full__"
+  fullChip.textContent = "AUTO"
+  fullChip.addEventListener("click", () => onSelect(null))
+  toolbar.appendChild(fullChip)
+  chips.push(fullChip)
+
+  function setActive(label) {
+    for (const c of chips) {
+      c.classList.toggle("active", label === null ? c.dataset.band === "__full__" : c.dataset.band === label)
+    }
+  }
+
+  return {toolbar, setActive}
+}
+
 export async function render({model, el, view}) {
   const container = document.createElement("div")
   container.className = "muuri-grid"
@@ -310,7 +369,23 @@ export async function render({model, el, view}) {
     grid.layout()
   }
 
-  const onResize = () => { reclampAll() }
+  let lastAutoBand = null
+  const onResize = () => {
+    reclampAll()
+    // In auto mode, switch layouts when the natural width crosses a breakpoint
+    if (model.breakpoints?.length && activeBreakpoint === null && ids.length) {
+      const width = el.clientWidth
+      const band = getBandForWidth(model.breakpoints, width)
+      if (band && band.label !== lastAutoBand) {
+        lastAutoBand = band.label
+        const layouts = model.responsive_layouts || {}
+        const targetLayout = layouts[band.label]
+        if (targetLayout && targetLayout.length) {
+          applyLayoutToGrid(targetLayout)
+        }
+      }
+    }
+  }
   window.addEventListener("resize", onResize, true)
   model.on("remove", () => { window.removeEventListener("resize", onResize) })
   model.on("min_col_width", () => { reclampAll() })
@@ -320,14 +395,29 @@ export async function render({model, el, view}) {
   model.on("layout", async (_) => {
     if (flags.layout_from_client) { return }
     const next = model.layout
-    for (let i = 0; i < Math.min(ids.length, next.length); i++) {
+    applyLayoutToGrid(next)
+    if (model.local_save) { saveToLS(model.name, next) }
+  })
+
+  let sync = null
+  if (model.editable) {
+    sync = make_editable(model, container, grid, flags, ids)
+  }
+
+  // Responsive breakpoint management
+  let activeBreakpoint = null
+  let toolbarUI = null
+
+  function applyLayoutToGrid(layout) {
+    if (!layout || !layout.length || !ids.length) { return }
+    for (let i = 0; i < Math.min(ids.length, layout.length); i++) {
       const dataId = ids[i]
-      const el = container.querySelector(`[data-id="${dataId}"]`)
-      if (!el) { continue }
-      const item = grid.getItem(el)
+      const itemEl = container.querySelector(`[data-id="${dataId}"]`)
+      if (!itemEl) { continue }
+      const item = grid.getItem(itemEl)
       if (!item) { continue }
-      const spec = next[i] || {}
-      resizeItem(grid, el, spec.width ?? 100, spec.height ?? null, minColWidth(), false)
+      const spec = layout[i] || {}
+      resizeItem(grid, itemEl, spec.width ?? 100, spec.height ?? null, minColWidth(), false)
       if (spec.visible === false && item.isVisible()) {
         grid.hide([item], {layout: false})
       } else if (spec.visible !== false && !item.isVisible()) {
@@ -339,12 +429,100 @@ export async function render({model, el, view}) {
     }
     grid.refreshItems()
     grid.layout()
-    if (model.local_save) { saveToLS(model.name, next) }
-  })
+  }
 
-  let sync = null
-  if (model.editable) {
-    sync = make_editable(model, container, grid, flags, ids)
+  function saveCurrentToBreakpoint(band) {
+    if (!band) { return }
+    const layout = exportLayout(grid, ids)
+    const layouts = {...(model.responsive_layouts || {})}
+    layouts[band] = layout
+    flags.layout_from_client = true
+    model.responsive_layouts = layouts
+    flags.layout_from_client = false
+    if (model.local_save) {
+      saveToLS(`${model.name}::responsive`, layouts)
+    }
+  }
+
+  function switchToBreakpoint(label) {
+    const breakpoints = model.breakpoints
+    if (!breakpoints || !breakpoints.length) { return }
+
+    // Save current layout to the active breakpoint before switching
+    if (activeBreakpoint && ids.length) {
+      saveCurrentToBreakpoint(activeBreakpoint)
+    }
+
+    activeBreakpoint = label
+
+    if (label === null) {
+      // "AUTO" mode: unconstrain and use natural container width
+      container.style.removeProperty("max-width")
+      container.classList.remove("muuri-constrained")
+      // Determine which band we're actually in and apply that layout
+      const naturalWidth = el.clientWidth
+      const band = getBandForWidth(breakpoints, naturalWidth)
+      const layouts = model.responsive_layouts || {}
+      const targetLayout = layouts[band?.label] || model.layout
+      if (targetLayout && targetLayout.length) {
+        applyLayoutToGrid(targetLayout)
+      }
+    } else {
+      // Constrain to the selected breakpoint's max width
+      const bands = getBreakpointBands(breakpoints)
+      const band = bands.find(b => b.label === label)
+      if (band && band.max) {
+        container.style.maxWidth = `${band.max}px`
+      } else if (band && band.min) {
+        container.style.removeProperty("max-width")
+      }
+      container.classList.add("muuri-constrained")
+
+      // Apply saved layout for this breakpoint, or seed from nearest larger
+      const layouts = model.responsive_layouts || {}
+      let targetLayout = layouts[label]
+      if (!targetLayout || !targetLayout.length) {
+        // Seed from the next larger breakpoint that has a layout
+        const idx = bands.findIndex(b => b.label === label)
+        for (let i = idx + 1; i < bands.length; i++) {
+          if (layouts[bands[i].label]?.length) {
+            targetLayout = layouts[bands[i].label]
+            break
+          }
+        }
+        // Fall back to current layout
+        if (!targetLayout || !targetLayout.length) {
+          targetLayout = model.layout
+        }
+      }
+      if (targetLayout && targetLayout.length) {
+        applyLayoutToGrid(targetLayout)
+      }
+    }
+
+    grid.refreshItems()
+    grid.layout()
+    window.dispatchEvent(new Event("resize"))
+    if (toolbarUI) { toolbarUI.setActive(label) }
+  }
+
+  if (model.breakpoints?.length) {
+    toolbarUI = createBreakpointToolbar(model.breakpoints, container, switchToBreakpoint)
+    if (toolbarUI) {
+      el.insertBefore(toolbarUI.toolbar, container)
+      toolbarUI.setActive(null)
+      if (!model.editable) { toolbarUI.toolbar.style.display = "none" }
+      model.on("editable", () => {
+        toolbarUI.toolbar.style.display = model.editable ? "" : "none"
+      })
+    }
+    // When user edits layout while a breakpoint is selected, persist to responsive_layouts
+    model.on("layout", () => {
+      if (!flags.layout_from_client) { return }
+      if (activeBreakpoint) {
+        saveCurrentToBreakpoint(activeBreakpoint)
+      }
+    })
   }
 
   function create_item(child) {
@@ -520,6 +698,7 @@ export async function render({model, el, view}) {
     if (msg.action === "clear_local_save") {
       if (window.localStorage) {
         window.localStorage.removeItem(getLSKey(model.name))
+        window.localStorage.removeItem(getLSKey(`${model.name}::responsive`))
       }
     }
   })
@@ -540,13 +719,22 @@ export async function render({model, el, view}) {
         model.layout = saved
         flags.layout_from_client = false
       }
+      // Restore responsive layouts
+      if (model.breakpoints?.length) {
+        const savedResponsive = getFromLS(`${model.name}::responsive`)
+        if (savedResponsive && typeof savedResponsive === "object") {
+          flags.layout_from_client = true
+          model.responsive_layouts = savedResponsive
+          flags.layout_from_client = false
+        }
+      }
     }
 
     const children = model.get_child("objects")
     if (children && children.length) {
       last_children = view.model.data.objects
       await reconcile(children, true)
-      window.dispatchEvent(new Event("resize"));
+      window.dispatchEvent(new Event("resize"))
     }
   })
 }

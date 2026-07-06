@@ -52,6 +52,7 @@ pmui.Page(main=[grid], title="panel-tiles").servable()
 - Drag-and-drop tile reordering
 - Resize tiles from the corner handle
 - Configurable layout with percentage widths and pixel heights
+- Responsive breakpoints with per-breakpoint layouts
 - Close buttons with hide or remove behavior
 - Persist user layouts to localStorage
 - Read-only mode for fixed dashboards
