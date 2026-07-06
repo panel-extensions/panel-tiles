@@ -182,7 +182,7 @@ function getInitialHeight(child_el, child_model, item_el) {
   return child_height ? child_height + 20 : null
 }
 
-function make_editable(model, container, grid, flags, ids) {
+function make_editable(model, container, grid, flags, ids, onSync) {
   let updating = false
   const undo_stack = []
   const minColWidth = () => model.min_col_width || null
@@ -195,6 +195,7 @@ function make_editable(model, container, grid, flags, ids) {
     flags.layout_from_client = false
     updating = false
     if (model.local_save) { saveToLS(model.name, layout) }
+    if (onSync) { onSync() }
   }
 
   interact(".muuri-grid-item").resizable({
@@ -399,14 +400,16 @@ export async function render({model, el, view}) {
     if (model.local_save) { saveToLS(model.name, next) }
   })
 
-  let sync = null
-  if (model.editable) {
-    sync = make_editable(model, container, grid, flags, ids)
-  }
-
   // Responsive breakpoint management
   let activeBreakpoint = null
   let toolbarUI = null
+
+  let sync = null
+  if (model.editable) {
+    sync = make_editable(model, container, grid, flags, ids, () => {
+      if (activeBreakpoint) { saveCurrentToBreakpoint(activeBreakpoint) }
+    })
+  }
 
   function applyLayoutToGrid(layout) {
     if (!layout || !layout.length || !ids.length) { return }
@@ -516,13 +519,6 @@ export async function render({model, el, view}) {
         toolbarUI.toolbar.style.display = model.editable ? "" : "none"
       })
     }
-    // When user edits layout while a breakpoint is selected, persist to responsive_layouts
-    model.on("layout", () => {
-      if (!flags.layout_from_client) { return }
-      if (activeBreakpoint) {
-        saveCurrentToBreakpoint(activeBreakpoint)
-      }
-    })
   }
 
   function create_item(child) {
