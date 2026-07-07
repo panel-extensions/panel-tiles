@@ -452,7 +452,7 @@ def test_responsive_server_layout_update_saves_to_active_breakpoint(page):
     assert grid.responsive_layouts["xs"][0]["height"] == 120
 
 
-def test_responsive_server_layout_update_without_breakpoint_does_not_save(page):
+def test_responsive_server_layout_update_without_breakpoint_saves_to_current_band(page):
     grid = TileGrid(
         objects=[Markdown("A"), Markdown("B")],
         breakpoints=[768, 1200],
@@ -487,8 +487,11 @@ def test_responsive_server_layout_update_without_breakpoint_does_not_save(page):
         page,
     )
 
-    # responsive_layouts should remain empty
-    assert grid.responsive_layouts == {}
+    # In AUTO mode at width=900, the grid is in the "sm" band (768-1200),
+    # so the layout update should be saved to that band
+    wait_until(lambda: "sm" in grid.responsive_layouts, page)
+    assert grid.responsive_layouts["sm"][0]["width"] == 70
+    assert grid.responsive_layouts["sm"][1]["width"] == 30
 
 
 def test_responsive_fallback_to_larger_breakpoint(page):
