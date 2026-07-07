@@ -57,3 +57,4 @@ nav:
     - Home: index.md
     - Reference:
         - panel-tiles: reference/panel-tiles.md
+    - Releases: releases.md
