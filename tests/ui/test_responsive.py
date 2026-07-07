@@ -313,14 +313,16 @@ def test_responsive_local_save_persists(page):
 
     item = items.nth(1)
     resize_handle = item.locator(".muuri-handle.resize")
+    resize_handle.scroll_into_view_if_needed()
     wait_until(lambda: resize_handle.bounding_box() is not None, page)
+    page.wait_for_timeout(200)
     handle_box = resize_handle.bounding_box()
     start_x = handle_box["x"] + handle_box["width"] / 2
     start_y = handle_box["y"] + handle_box["height"] / 2
 
     page.mouse.move(start_x, start_y)
     page.mouse.down()
-    page.mouse.move(start_x - 100, start_y, steps=5)
+    page.mouse.move(start_x - 100, start_y, steps=10)
     page.mouse.up()
 
     # Wait for responsive_layouts to update
