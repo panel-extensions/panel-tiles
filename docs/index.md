@@ -46,6 +46,7 @@ pip install panel-tiles
 - Drag-and-drop tile reordering
 - Resize tiles from the corner handle
 - Configurable layout with percentage widths and pixel heights
+- Responsive breakpoints with per-breakpoint layouts
 - Close buttons with hide or remove behavior
 - Persist user layouts to localStorage
 - Read-only mode for fixed dashboards
@@ -57,6 +58,7 @@ pip install panel-tiles
 - [Add and Remove Tiles Dynamically](how_to/dynamic_tiles.md)
 - [Configure Close Buttons](how_to/close_action.md)
 - [Persist Layout with localStorage](how_to/local_save.md)
+- [Create Responsive Layouts](how_to/responsive_breakpoints.md)
 - [Create a Read-Only Grid](how_to/read_only.md)
 
 ## Reference

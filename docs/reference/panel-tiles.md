@@ -11,12 +11,15 @@ from panel_tiles import TileGrid
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `objects` | `list` | `[]` | Panel components displayed as tiles in the grid. |
+| `breakpoints` | `list[int]` | `[]` | Pixel-width thresholds defining responsive bands (e.g. `[768, 1200]`). When set with `editable=True`, a toolbar appears for authoring per-breakpoint layouts. |
 | `editable` | `bool` | `True` | Whether tiles can be dragged and resized by the user. |
 | `layout` | `list[dict]` | `[]` | Layout specification for each tile. Each entry is a dict with keys `width` (percent), `height` (pixels), `visible` (bool), and `index` (position). Applied on initial render and when updated programmatically. |
 | `close_action` | `None \| "hide" \| "remove"` | `None` | Controls the close button behavior. `None` hides the close button entirely. `"hide"` hides the tile visually (it remains in `objects`). `"remove"` deletes the tile from `objects` on the server. |
 | `fill_gaps` | `bool` | `True` | Whether Muuri should fill gaps in the grid layout when items are different sizes. |
 | `local_save` | `bool` | `False` | Persist user layout changes to `localStorage` so they survive page refreshes. Requires `name` to be set for unique identification. |
+| `min_col_width` | `int` | `None` | Minimum tile width in pixels. When the container is too narrow for a tile at its authored percentage, the tile is responsively widened. The persisted layout is unaffected. |
 | `name` | `str` | `""` | Unique identifier for the grid, used as the `localStorage` key when `local_save=True`. Required when multiple grids exist on the same page. |
+| `responsive_layouts` | `dict` | `{}` | Dict mapping breakpoint labels (e.g. `"xs"`, `"sm"`, `"md"`) to layout lists. Auto-populated as users arrange tiles at different breakpoint views. Can also be set programmatically. |
 
 ## Layout Specification
 
@@ -36,6 +39,22 @@ layout = [
 
 When `layout` is empty, tiles auto-size based on their content dimensions and the `width`/`height` parameters of child components.
 
+## Responsive Breakpoints
+
+When `breakpoints` is set (e.g. `[768, 1200]`), the grid supports per-breakpoint layouts. The thresholds divide the viewport into bands labeled sequentially: `xs`, `sm`, `md`, `lg`, `xl`, `xxl`.
+
+For example, `breakpoints=[768, 1200]` creates:
+
+| Band | Width range |
+|------|-------------|
+| `xs` | < 768px |
+| `sm` | 768 - 1200px |
+| `md` | > 1200px |
+
+When `editable=True`, a toolbar with breakpoint chips appears above the grid. Selecting a chip constrains the grid container to that breakpoint's max width so you can visually author the layout for that viewport. Edits are saved to `responsive_layouts` under the active breakpoint's label. The "AUTO" chip returns to natural width and automatically applies the correct layout as the viewport resizes.
+
+If no layout has been authored for a breakpoint, the grid seeds from the nearest larger breakpoint's layout (or falls back to the default `layout`).
+
 ## Layout Precedence
 
 When `local_save=True`, the priority on page load is:
@@ -45,6 +64,13 @@ When `local_save=True`, the priority on page load is:
 3. Auto-sizing from content
 
 A programmatic update to `layout` (from the server) overwrites the saved `localStorage` value, resetting user customizations.
+
+When responsive breakpoints are configured, the precedence for a given viewport width is:
+
+1. Saved responsive layout from `localStorage` for the active band
+2. `responsive_layouts[band]` from the server
+3. Layout from the nearest larger breakpoint
+4. The default `layout`
 
 ## Methods
 

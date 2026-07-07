@@ -18,6 +18,7 @@
   position: absolute;
   width: calc(100% - 30px);
   z-index: 1;
+  overflow: auto;
 }
 
 .muuri-grid-item.muuri-item-hidden {
@@ -107,4 +108,45 @@
 
 .muuri-no-handles .muuri-handle {
   display: none;
+}
+
+/* Breakpoint toolbar */
+.muuri-breakpoint-toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.muuri-breakpoint-chip {
+  appearance: none;
+  border: 1px solid var(--mui-palette-divider, var(--panel-border-color, rgba(0, 0, 0, 0.12)));
+  border-radius: 16px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  background: var(--mui-palette-background-paper, var(--panel-surface-color, white));
+  color: var(--mui-palette-text-secondary, var(--panel-secondary-color, rgba(0, 0, 0, 0.6)));
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  line-height: 1.4;
+}
+
+.muuri-breakpoint-chip:hover {
+  background: var(--mui-palette-action-hover, rgba(0, 0, 0, 0.04));
+}
+
+.muuri-breakpoint-chip.active {
+  background: var(--mui-palette-primary-main, var(--panel-primary-color, #1976d2));
+  color: var(--mui-palette-primary-contrastText, white);
+  border-color: var(--mui-palette-primary-main, var(--panel-primary-color, #1976d2));
+}
+
+/* Constrained preview mode */
+.muuri-grid.muuri-constrained {
+  margin: 0 auto;
+  box-shadow: inset 0 0 0 2px var(--mui-palette-primary-main, var(--panel-primary-color, #1976d2));
+  border-radius: 4px;
+  transition: max-width 0.3s ease;
 }
