@@ -119,6 +119,14 @@ class TileGrid(JSComponent, ListLike):
 
     def _handle_msg(self, msg):
         action = msg.get("action")
+        if action == "update_responsive_layout":
+            band = msg.get("band")
+            layout = msg.get("layout")
+            if band and layout is not None:
+                layouts = dict(self.responsive_layouts)
+                layouts[band] = layout
+                self.responsive_layouts = layouts
+            return
         index = msg.get("index")
         if index is None or index < 0 or index >= len(self.objects):
             return

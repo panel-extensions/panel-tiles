@@ -402,6 +402,95 @@ def test_responsive_clear_local_save_removes_responsive(page):
     )
 
 
+def test_responsive_server_layout_update_saves_to_active_breakpoint(page):
+    grid = TileGrid(
+        objects=[Markdown("A"), Markdown("B")],
+        breakpoints=[768, 1200],
+        layout=[
+            {"index": 0, "width": 50, "height": 100, "visible": True},
+            {"index": 1, "width": 50, "height": 100, "visible": True},
+        ],
+        editable=True,
+        local_save=False,
+        width=900,
+        height=400,
+    )
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+    wait_until(
+        lambda: items.nth(0).evaluate("el => el.style.height") == "100px",
+        page,
+    )
+
+    # Select XS breakpoint
+    xs_chip = page.locator(".muuri-breakpoint-chip").first
+    xs_chip.click()
+
+    wait_until(
+        lambda: page.locator(".muuri-grid.muuri-constrained").count() == 1,
+        page,
+    )
+
+    # Update layout from server while XS is active
+    grid.layout = [
+        {"index": 0, "width": 100, "height": 120, "visible": True},
+        {"index": 1, "width": 100, "height": 120, "visible": True},
+    ]
+
+    # Layout should be applied visually
+    wait_until(
+        lambda: items.nth(0).evaluate("el => el.getAttribute('data-width')") == "100",
+        page,
+    )
+
+    # responsive_layouts should be updated with the xs entry
+    wait_until(lambda: "xs" in grid.responsive_layouts, page)
+    assert grid.responsive_layouts["xs"][0]["width"] == 100
+    assert grid.responsive_layouts["xs"][0]["height"] == 120
+
+
+def test_responsive_server_layout_update_without_breakpoint_does_not_save(page):
+    grid = TileGrid(
+        objects=[Markdown("A"), Markdown("B")],
+        breakpoints=[768, 1200],
+        layout=[
+            {"index": 0, "width": 50, "height": 100, "visible": True},
+            {"index": 1, "width": 50, "height": 100, "visible": True},
+        ],
+        editable=True,
+        local_save=False,
+        width=900,
+        height=400,
+    )
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+    wait_until(
+        lambda: items.nth(0).evaluate("el => el.style.height") == "100px",
+        page,
+    )
+
+    # Update layout from server in AUTO mode (no breakpoint selected)
+    grid.layout = [
+        {"index": 0, "width": 70, "height": 150, "visible": True},
+        {"index": 1, "width": 30, "height": 150, "visible": True},
+    ]
+
+    # Layout should be applied visually
+    wait_until(
+        lambda: items.nth(0).evaluate("el => el.getAttribute('data-width')") == "70",
+        page,
+    )
+
+    # responsive_layouts should remain empty
+    assert grid.responsive_layouts == {}
+
+
 def test_responsive_fallback_to_larger_breakpoint(page):
     grid = TileGrid(
         objects=[Markdown("A"), Markdown("B")],

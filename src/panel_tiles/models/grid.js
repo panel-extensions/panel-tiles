@@ -398,6 +398,15 @@ export async function render({model, el, view}) {
     const next = model.layout
     applyLayoutToGrid(next)
     if (model.local_save) { saveToLS(model.name, next) }
+    if (model.breakpoints?.length) {
+      if (activeBreakpoint) {
+        saveCurrentToBreakpoint(activeBreakpoint)
+      } else {
+        const width = el.clientWidth
+        const band = getBandForWidth(model.breakpoints, width)
+        if (band) { saveCurrentToBreakpoint(band.label) }
+      }
+    }
   })
 
   // Responsive breakpoint management
@@ -407,7 +416,14 @@ export async function render({model, el, view}) {
   let sync = null
   if (model.editable) {
     sync = make_editable(model, container, grid, flags, ids, () => {
-      if (activeBreakpoint) { saveCurrentToBreakpoint(activeBreakpoint) }
+      if (!model.breakpoints?.length) { return }
+      if (activeBreakpoint) {
+        saveCurrentToBreakpoint(activeBreakpoint)
+      } else {
+        const width = el.clientWidth
+        const band = getBandForWidth(model.breakpoints, width)
+        if (band) { saveCurrentToBreakpoint(band.label) }
+      }
     })
   }
 
@@ -439,9 +455,8 @@ export async function render({model, el, view}) {
     const layout = exportLayout(grid, ids)
     const layouts = {...(model.responsive_layouts || {})}
     layouts[band] = layout
-    flags.layout_from_client = true
     model.responsive_layouts = layouts
-    flags.layout_from_client = false
+    model.send_msg({action: "update_responsive_layout", band, layout})
     if (model.local_save) {
       saveToLS(`${model.name}::responsive`, layouts)
     }
@@ -599,6 +614,7 @@ export async function render({model, el, view}) {
     const added_indices = []
     for (let i = 0; i < next_children.length; i++) {
       const child = next_children[i]
+      if (!child) { continue }
       const child_model = next_models[i]
       const cv = view.get_child_view(child_model)
       const mid = child_model?.id
@@ -706,6 +722,9 @@ export async function render({model, el, view}) {
     await reconcile(children)
   })
 
+  // Access children before rAF so Panel registers them for rendering
+  model.get_child("objects")
+
   requestAnimationFrame(async () => {
     // Restore saved layout from localStorage if available
     if (model.local_save) {
@@ -726,8 +745,13 @@ export async function render({model, el, view}) {
       }
     }
 
+    const expected = (model.objects || []).length
+    if (expected > 0) {
+      await view.root.ready
+    }
+
     const children = model.get_child("objects")
-    if (children && children.length) {
+    if (children && children.length && children.some(c => c != null)) {
       last_children = view.model.data.objects
       await reconcile(children, true)
       window.dispatchEvent(new Event("resize"))
