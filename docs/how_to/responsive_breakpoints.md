@@ -1,6 +1,6 @@
 # How To: Create Responsive Layouts
 
-Use the `breakpoints` parameter to define viewport-width thresholds and author different tile arrangements for each screen size.
+Arrange tiles once, at whatever width you are working at, and let the grid adapt the arrangement to narrower screens. Tiles keep their authored size relative to the width they were arranged at and wrap onto new lines instead of shrinking indefinitely. Breakpoints let you preview each screen size and, where the generated arrangement isn't what you want, replace it with a custom one.
 
 ## Basic Usage
 
@@ -15,72 +15,81 @@ grid = TileGrid(
         pn.pane.Markdown("# Revenue\n\n$1.2M"),
         pn.pane.Markdown("# Users\n\n14,302"),
         pn.pane.Markdown("# Growth\n\n+12%"),
+        pn.pane.Markdown("# Churn\n\n2.1%"),
         pn.pane.Markdown("# Chart\n\nTrend data here."),
+        pn.pane.Markdown("# Notes"),
     ],
+    layout=[
+        {"index": 0, "width": 25, "height": 120, "visible": True},
+        {"index": 1, "width": 25, "height": 120, "visible": True},
+        {"index": 2, "width": 25, "height": 120, "visible": True},
+        {"index": 3, "width": 25, "height": 120, "visible": True},
+        {"index": 4, "width": 66.67, "height": 320, "visible": True},
+        {"index": 5, "width": 33.33, "height": 320, "visible": True},
+    ],
+    reference_width=1400,
     breakpoints=[768, 1200],
     sizing_mode="stretch_width",
-    height=600,
 )
 
 grid.servable()
 ```
 
-This creates three responsive bands:
+At 1400px and wider the grid shows `layout` as written. Below that, each tile may shrink to half its authored pixel width before it wraps:
 
-- **xs** (< 768px): phones and narrow tablets
-- **sm** (768 - 1200px): tablets and small laptops
-- **md** (> 1200px): desktops
+- At 1000px nothing changes, since every tile still has at least half its authored width.
+- At 600px the four KPI tiles form a 2x2 grid, and the chart and notes stack at full width.
+- On a phone every tile gets its own line once `min_col_width` is larger than half the screen.
 
-## Authoring Layouts Per Breakpoint
+The authored `layout` is never modified by viewing the grid at a smaller size.
 
-When `editable=True` (the default), a toolbar appears above the grid with chips for each breakpoint plus an "AUTO" button. To author a responsive layout:
+## How Layouts Are Generated
 
-1. Click a breakpoint chip (e.g. "XS <768px")
-2. The grid constrains to that max width, showing you exactly how it will look at that viewport
-3. Drag and resize tiles to arrange them for that screen size
-4. Click another breakpoint to switch and arrange that view
-5. Click "AUTO" to return to natural width with automatic breakpoint switching
+The grid reconstructs how the tiles are arranged at `reference_width`, i.e. which tiles sit side by side in a row and which are stacked in a column, and snaps them to a 12-column grid. For a narrower container, each row keeps its authored proportions as long as every tile in it stays above its shrink limit. Otherwise the row is split into as few evenly balanced lines as needed: four equal tiles become 2+2 rather than 3+1, and a tile alone on a line takes the full width. Tiles stacked beside a larger tile stay together as a group when they wrap.
 
-Each breakpoint's layout is saved independently. When the viewport resizes, the grid automatically applies the matching breakpoint's layout.
+The shrink limit of a tile is the largest of:
 
-## Pre-configuring Responsive Layouts
+- `wrap_shrink` (default `0.5`) times its authored pixel width
+- `min_col_width`
+- the tile's own `min_width`
 
-You can provide responsive layouts programmatically instead of (or in addition to) interactive authoring:
+Set `responsive_mode="scale"` to keep authored percentages at every width instead.
+
+## The Reference Width
+
+`reference_width` records the container width at which `layout` was arranged. It is set automatically whenever tiles are edited in the authored layout. If it's unset, the largest breakpoint is assumed, or 1200px when there are no breakpoints. Generation works without breakpoints; breakpoints are only needed for previewing and custom layouts.
+
+## Previewing and Customizing Breakpoints
+
+With `breakpoints=[768, 1200]` the grid has three bands: **xs** (< 768px), **sm** (768 - 1200px) and **md** (> 1200px). When `editable=True`, a toolbar shows a chip for each band plus "AUTO":
+
+- The band containing `reference_width` is marked **base**. Editing while it's shown edits `layout` and updates `reference_width`.
+- Clicking another band constrains the grid to that band's maximum width and shows the generated layout. Editing it saves a custom layout for that band to `responsive_layouts`, and the chip is marked **custom**.
+- While a custom band is shown, **Reset** discards its custom layout so it's generated again.
+- "AUTO" returns to the natural width.
+
+Custom layouts can also be provided up front:
 
 ```python
 grid = TileGrid(
     objects=[...],
     breakpoints=[768, 1200],
-    layout=[
-        {"width": 33, "height": 150, "visible": True},
-        {"width": 33, "height": 150, "visible": True},
-        {"width": 33, "height": 150, "visible": True},
-        {"width": 100, "height": 300, "visible": True},
-    ],
+    layout=[...],
+    reference_width=1400,
     responsive_layouts={
         "xs": [
-            {"width": 100, "height": 120, "visible": True},
-            {"width": 100, "height": 120, "visible": True},
-            {"width": 100, "height": 120, "visible": True},
-            {"width": 100, "height": 250, "visible": True},
-        ],
-        "sm": [
-            {"width": 50, "height": 150, "visible": True},
-            {"width": 50, "height": 150, "visible": True},
-            {"width": 50, "height": 150, "visible": True},
-            {"width": 100, "height": 300, "visible": True},
+            {"index": 0, "width": 100, "height": 120, "visible": True},
+            ...
         ],
     },
-    sizing_mode="stretch_width",
-    height=600,
 )
 ```
 
-The `layout` parameter serves as the default (used for the largest breakpoint or when no responsive layout exists for a band).
+`grid.reset_responsive_layout("xs")` removes one custom layout, and `grid.reset_responsive_layout()` removes all of them. Custom layouts for the base band are ignored, since that band always shows `layout`.
 
 ## Persisting Responsive Layouts
 
-When `local_save=True`, responsive layouts are persisted to `localStorage` alongside the default layout. Users' breakpoint-specific arrangements survive page refreshes.
+When `local_save=True`, the reference width and custom layouts are persisted to `localStorage` alongside `layout`, and `grid.clear_local_save()` removes all of them.
 
 ```python
 grid = TileGrid(
@@ -89,26 +98,5 @@ grid = TileGrid(
     local_save=True,
     name="my-dashboard",
     sizing_mode="stretch_width",
-    height=600,
-)
-```
-
-Calling `grid.clear_local_save()` removes both the default and all responsive saved layouts.
-
-## Fallback Behavior
-
-When a user resizes their browser into a breakpoint that has no authored layout, the grid falls back to the nearest larger breakpoint's layout. If no larger breakpoint has a layout either, it uses the default `layout`. This means you can author just the desktop and mobile layouts, and intermediate sizes will gracefully inherit from the larger one.
-
-## Combining with min_col_width
-
-The `min_col_width` parameter works alongside breakpoints. Within any breakpoint's layout, tiles are still clamped to the minimum width if the container is narrower than expected:
-
-```python
-grid = TileGrid(
-    objects=[...],
-    breakpoints=[768, 1200],
-    min_col_width=200,
-    sizing_mode="stretch_width",
-    height=600,
 )
 ```
