@@ -1,6 +1,6 @@
 # Releases
 
-## v0.4.0 (Upcoming)
+## Version 0.4.0
 
 ### New Features
 
