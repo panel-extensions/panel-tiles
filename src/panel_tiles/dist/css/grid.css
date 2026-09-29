@@ -143,6 +143,38 @@
   border-color: var(--mui-palette-primary-main, var(--panel-primary-color, #1976d2));
 }
 
+.muuri-breakpoint-chip.muuri-chip-base::after,
+.muuri-breakpoint-chip.muuri-chip-custom::after {
+  margin-left: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
+.muuri-breakpoint-chip.muuri-chip-base::after {
+  content: "base";
+}
+
+.muuri-breakpoint-chip.muuri-chip-custom::after {
+  content: "custom";
+}
+
+.muuri-breakpoint-reset {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--mui-palette-primary-main, var(--panel-primary-color, #1976d2));
+}
+
+.muuri-breakpoint-reset:hover {
+  text-decoration: underline;
+}
+
 /* Constrained preview mode */
 .muuri-grid.muuri-constrained {
   margin: 0 auto;

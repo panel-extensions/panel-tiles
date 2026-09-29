@@ -160,6 +160,7 @@ def test_grid_responsive_clamp_widens_narrow_tiles(page):
         ],
         editable=False,
         local_save=False,
+        responsive_mode="scale",
         min_col_width=300,
         width=400,
     )
@@ -180,6 +181,35 @@ def test_grid_responsive_clamp_widens_narrow_tiles(page):
     )
 
 
+def test_grid_min_col_width_wraps_narrow_tiles(page):
+    layout = [
+        {"index": 0, "width": 25, "height": 80, "visible": True},
+        {"index": 1, "width": 25, "height": 80, "visible": True},
+    ]
+    grid = TileGrid(
+        objects=[
+            Spacer(styles={"background": "red"}, width=100, height=80),
+            Spacer(styles={"background": "green"}, width=100, height=80),
+        ],
+        layout=layout,
+        editable=False,
+        local_save=False,
+        min_col_width=300,
+        width=400,
+    )
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+
+    # 100px tiles are below min_col_width, so each wraps onto its own line.
+    for i in range(2):
+        wait_until(lambda i=i: items.nth(i).evaluate("el => el.getAttribute('data-width')") == "100", page)
+    assert items.nth(1).bounding_box()["y"] > items.nth(0).bounding_box()["y"]
+    assert grid.layout == layout
+
+
 def test_grid_responsive_clamp_preserves_authored_width(page):
     grid = TileGrid(
         objects=[
@@ -190,6 +220,7 @@ def test_grid_responsive_clamp_preserves_authored_width(page):
         ],
         editable=False,
         local_save=False,
+        responsive_mode="scale",
         min_col_width=300,
         width=400,
     )
@@ -336,6 +367,7 @@ def test_grid_respects_child_min_width(page):
         ],
         editable=False,
         local_save=False,
+        responsive_mode="scale",
         width=600,
     )
 

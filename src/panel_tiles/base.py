@@ -46,9 +46,9 @@ class TileGrid(JSComponent, ListLike):
         default=[],
         doc="""
         List of pixel-width thresholds that define responsive breakpoint
-        bands, e.g. [768, 1200] yields three bands: sm (<768), md (768-1200),
-        lg (>1200). When set, a toolbar appears in edit mode to switch between
-        breakpoint views and author per-breakpoint layouts.""",
+        bands, e.g. [768, 1200] yields three bands: xs (<768), sm (768-1200),
+        md (>1200). When set, a toolbar appears in edit mode to preview each
+        band and optionally author a custom layout for it.""",
     )
 
     min_col_width = param.Integer(
@@ -60,16 +60,50 @@ class TileGrid(JSComponent, ListLike):
         widened to prevent overflow. The persisted layout is unaffected.""",
     )
 
-    layout = param.List(default=[])
+    layout = param.List(
+        default=[],
+        doc="""
+        The authored layout, one dict per tile with `index`, `width` (percent),
+        `height` (px) and `visible`. Narrower containers derive their layout
+        from it (see `responsive_mode`); it is only modified by edits made
+        while the authored layout itself is displayed.""",
+    )
 
     local_save = param.Boolean(default=False)
+
+    reference_width = param.Integer(
+        default=None,
+        bounds=(1, None),
+        doc="""
+        Container width in pixels at which `layout` was last edited. Tiles
+        keep their authored size relative to this width when the container
+        narrows. Set automatically on edit; when unset the largest breakpoint
+        (or 1200px) is assumed.""",
+    )
 
     responsive_layouts = param.Dict(
         default={},
         doc="""
-        Dict mapping breakpoint labels (e.g. "sm", "md", "lg") to layout
-        lists. Auto-populated as users arrange tiles at different breakpoint
-        views. The keys are derived from the `breakpoints` thresholds.""",
+        Custom layouts keyed by breakpoint label (e.g. "xs", "sm"), created
+        by editing a band other than the one containing `reference_width`.
+        Bands without an entry use a layout generated from `layout`.""",
+    )
+
+    responsive_mode = param.Selector(
+        default="wrap",
+        objects=["wrap", "scale"],
+        doc="""
+        How to adapt `layout` below `reference_width`. "wrap" moves tiles onto
+        new lines once they would shrink below `wrap_shrink` of their authored
+        width (or below `min_col_width`); "scale" keeps authored percentages.""",
+    )
+
+    wrap_shrink = param.Number(
+        default=0.5,
+        bounds=(0, 1),
+        doc="""
+        Fraction of its authored pixel width a tile may shrink to before it
+        wraps onto a new line when `responsive_mode="wrap"`.""",
     )
 
     name = param.String(default="")
@@ -78,6 +112,7 @@ class TileGrid(JSComponent, ListLike):
 
     _bundle = DIST_PATH / "panel-tiles.bundle.js"
     _esm = BASE_PATH / "models" / "grid.js"
+    _esm_shared = {"responsive": BASE_PATH / "models" / "responsive.js"}
     _stylesheets = [DIST_PATH / "css" / "grid.css"]
     _render_policy = "manual"
 
@@ -117,6 +152,16 @@ class TileGrid(JSComponent, ListLike):
         """Clear the saved layout from the browser's localStorage."""
         self._send_msg({"action": "clear_local_save"})
 
+    def reset_responsive_layout(self, band: str | None = None):
+        """
+        Discard the custom layout for `band`, or all custom layouts if no
+        band is given, so the affected bands use generated layouts again.
+        """
+        if band is None:
+            self.responsive_layouts = {}
+        elif band in self.responsive_layouts:
+            self.responsive_layouts = {k: v for k, v in self.responsive_layouts.items() if k != band}
+
     def _handle_msg(self, msg):
         action = msg.get("action")
         if action == "update_responsive_layout":
@@ -126,6 +171,9 @@ class TileGrid(JSComponent, ListLike):
                 layouts = dict(self.responsive_layouts)
                 layouts[band] = layout
                 self.responsive_layouts = layouts
+            return
+        if action == "delete_responsive_layout":
+            self.reset_responsive_layout(msg.get("band"))
             return
         index = msg.get("index")
         if index is None or index < 0 or index >= len(self.objects):

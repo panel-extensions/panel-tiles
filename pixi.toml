@@ -9,6 +9,7 @@ compile = { cmd = "panel compile panel_tiles", env = { PYTHONPATH = "./src:$PYTH
 compile-dev = { cmd = "panel compile panel_tiles --build-dir build --watch", env = { PYTHONPATH = "./src:$PYTHONPATH" } }
 pre-commit-install = "pre-commit install"
 pre-commit-run = "pre-commit run -a"
+test-js = "node --test tests/js/responsive.test.mjs"
 
 [dependencies]
 python = ">=3.10"
