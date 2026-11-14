@@ -107,3 +107,13 @@ def test_handle_msg_updates_and_deletes_responsive_layout():
 
     grid._handle_msg({"action": "delete_responsive_layout", "band": "xs"})
     assert grid.responsive_layouts == {}
+
+
+def test_grid_bundle_url_is_versioned_without_autoreload():
+    from panel.config import config
+
+    assert not config.autoreload
+    url = TileGrid._render_esm(server=True)
+    path, _, version = url.partition("?")
+    assert path.endswith("panel-tiles.bundle.js")
+    assert len(version) == 64

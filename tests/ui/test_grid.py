@@ -657,3 +657,34 @@ def test_grid_resize_without_overflow_tolerance_reflows_at_row_end(page):
     expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
     page.mouse.up()
     wait_until(lambda: grid.layout[1]["width"] > 45, page)
+
+
+def test_grid_resize_past_end_of_full_row_shows_fill(page):
+    grid = TileGrid(
+        objects=[Markdown("A"), Markdown("B")],
+        layout=[
+            {"index": 0, "width": 50, "height": 120, "visible": True},
+            {"index": 1, "width": 50, "height": 120, "visible": True},
+        ],
+        local_save=False,
+        width=800,
+    )
+    serve_component(page, grid)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+    before = settled_box(page, items.nth(1))
+
+    box = settled_box(page, items.nth(0).locator(".muuri-handle.resize"))
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 30, y, steps=10)
+
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "fill")
+    expect(items.nth(0)).to_have_attribute("data-resize-state", "fill")
+    expect(page.locator(".muuri-row-marker")).to_have_count(1)
+    page.mouse.up()
+
+    expect(page.locator(".muuri-row-marker")).to_have_count(0)
+    assert items.nth(0).get_attribute("data-width") == "50"
+    assert settled_box(page, items.nth(1)) == before
