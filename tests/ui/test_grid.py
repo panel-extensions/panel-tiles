@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 pytest.importorskip("playwright")
@@ -573,3 +575,85 @@ def test_grid_height_only_resize_keeps_width(page):
     assert grid.layout[2]["width"] == 30
     assert after["width"] == before["width"]
     assert after["height"] == pytest.approx(before["height"] + 80, abs=1)
+
+
+ROW_LAYOUT = [
+    {"index": 0, "width": 30, "height": 120, "visible": True},
+    {"index": 1, "width": 30, "height": 120, "visible": True},
+    {"index": 2, "width": 25, "height": 120, "visible": True},
+]
+
+
+def serve_row_grid(page, **kwargs):
+    grid = TileGrid(
+        objects=[Markdown(name) for name in ("Map", "Weights", "Tuning")],
+        layout=ROW_LAYOUT,
+        local_save=False,
+        width=1000,
+        **kwargs,
+    )
+    serve_component(page, grid)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(3)
+    wait_until(lambda: items.nth(2).evaluate("el => el.style.height") == "120px", page)
+    return grid, items
+
+
+def drag_past_row_end(page, items, overshoot):
+    """Press the Weights handle and drag it `overshoot` px past where the row would be full."""
+    grid_box = settled_box(page, page.locator(".muuri-grid"))
+    tuning = settled_box(page, items.nth(2))
+    spare = grid_box["x"] + grid_box["width"] - 10 - (tuning["x"] + tuning["width"])
+    handle = settled_box(page, items.nth(1).locator(".muuri-handle.resize"))
+    x, y = handle["x"] + handle["width"] / 2, handle["y"] + handle["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + spare + overshoot, y, steps=10)
+    return tuning
+
+
+def test_grid_resize_slightly_past_row_end_fills_it(page):
+    grid, items = serve_row_grid(page)
+    tuning = drag_past_row_end(page, items, 30)
+
+    grid_el = page.locator(".muuri-grid")
+    expect(grid_el).to_have_attribute("data-resize-state", "fill")
+    expect(items.nth(1)).to_have_attribute("data-resize-state", "fill")
+    expect(page.locator(".muuri-row-marker")).to_have_count(1)
+    expect(page.locator(".muuri-will-move")).to_have_count(0)
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[1]["width"] != 30, page)
+    expect(grid_el).not_to_have_attribute("data-resize-state", "fill")
+    expect(page.locator(".muuri-row-marker")).to_have_count(0)
+    after = settled_box(page, items.nth(2))
+    grid_box = grid_el.bounding_box()
+    assert after["y"] == tuning["y"]
+    assert abs(after["x"] + after["width"] + 10 - (grid_box["x"] + grid_box["width"])) < 0.5
+    assert 44.9 < grid.layout[1]["width"] < 45
+
+
+def test_grid_resize_well_past_row_end_reflows(page):
+    grid, items = serve_row_grid(page)
+    tuning = drag_past_row_end(page, items, 160)
+
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
+    expect(items.nth(1)).to_have_attribute("data-resize-state", "overflow")
+    expect(items.nth(2)).to_have_class(re.compile("muuri-will-move"))
+    expect(page.locator(".muuri-resize-ghost")).to_be_visible()
+    # Nothing reflows until release.
+    assert settled_box(page, items.nth(2))["y"] == tuning["y"]
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[1]["width"] > 50, page)
+    expect(page.locator(".muuri-will-move")).to_have_count(0)
+    assert settled_box(page, items.nth(2))["y"] > tuning["y"] + 100
+
+
+def test_grid_resize_without_overflow_tolerance_reflows_at_row_end(page):
+    grid, items = serve_row_grid(page, overflow_tolerance=0)
+    drag_past_row_end(page, items, 30)
+
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
+    page.mouse.up()
+    wait_until(lambda: grid.layout[1]["width"] > 45, page)

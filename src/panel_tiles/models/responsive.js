@@ -209,6 +209,69 @@ export function widthPercent(px, containerWidth) {
   return Math.min(100, Math.max(1, Math.floor(pct * 1e4) / 1e4))
 }
 
+/**
+ * Row geometry for widening `items[index]`, from Muuri's outer boxes (px) at
+ * drag start. Earlier items to its right in its row band fix where the row
+ * ends; later ones are pushed along, so `fill` is the widest it can grow
+ * without anything reflowing.
+ */
+export function planRowResize(items, index, containerWidth) {
+  const r = items[index]
+  const inBand = o => (
+    o !== r && o.top < r.top + r.height - PX_EPS && r.top < o.top + o.height - PX_EPS &&
+    o.left >= r.left + r.width - PX_EPS
+  )
+  let limit = containerWidth
+  items.forEach((o, j) => { if (j < index && inBand(o)) { limit = Math.min(limit, o.left) } })
+  const pushed = items
+    .map((o, j) => ({index: j, left: o.left, width: o.width}))
+    .filter(({index: j}) => j > index && inBand(items[j]) && items[j].left < limit - PX_EPS)
+    .sort((a, b) => a.left - b.left)
+  const used = pushed.reduce((sum, p) => sum + p.width, 0)
+  return {index, left: r.left, width: r.width, limit, fill: limit - r.left - used, pushed}
+}
+
+/**
+ * What a resize to `desired` outer px does to the row in `plan`: "free" and
+ * "fill" apply `width` now, while "overflow" holds the tile at the row end
+ * until release, when `final` applies and the `moving` items reflow.
+ */
+export function resolveRowResize(plan, desired, tolerance) {
+  if (desired < plan.fill - PX_EPS) {
+    return {state: "free", width: desired, final: desired, moving: []}
+  }
+  if (desired <= plan.fill + tolerance) {
+    return {state: "fill", width: plan.fill, final: plan.fill, moving: []}
+  }
+  let right = plan.left + desired
+  let moving = []
+  if (right > plan.limit + PX_EPS) {
+    moving = [plan.index]
+  } else {
+    const first = plan.pushed.findIndex(p => (right += p.width) > plan.limit + PX_EPS)
+    moving = first === -1 ? [] : plan.pushed.slice(first).map(p => p.index)
+  }
+  return {state: "overflow", width: plan.fill, final: desired, moving}
+}
+
+/**
+ * Snap a dragged edge at `x` to the nearest of `targets` within `range`.
+ * Within `tolerance` past `fill` the edge always lands on `fill`; past that
+ * only targets beyond the tolerance zone apply.
+ */
+export function snapEdge(x, targets, {range, fill = null, tolerance = 0}) {
+  let candidates = targets
+  if (fill != null) {
+    if (x > fill && x <= fill + tolerance) { return fill }
+    candidates = x > fill ? targets.filter(t => t > fill + tolerance) : [fill, ...targets.filter(t => t <= fill)]
+  }
+  let best
+  for (const t of candidates) {
+    if (Math.abs(t - x) < range && (best === undefined || Math.abs(t - x) < Math.abs(best - x))) { best = t }
+  }
+  return best
+}
+
 function roundPct(value) {
   return Math.min(100, Math.max(1, Math.round(value * 1e4) / 1e4))
 }

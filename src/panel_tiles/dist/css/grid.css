@@ -1,7 +1,49 @@
 .muuri-grid {
+  --tile-snap-color: var(--mui-palette-primary-main, var(--panel-primary-color, #1976d2));
+  --tile-overflow-color: var(--mui-palette-warning-main, #ed6c02);
   position: relative;
   width: 100%;
   height: 100%;
+}
+
+/* Resize feedback: filling the row end, or overflowing it on release */
+.muuri-row-marker,
+.muuri-resize-ghost {
+  position: absolute;
+  pointer-events: none;
+  z-index: 101;
+  box-sizing: border-box;
+}
+
+.muuri-row-marker {
+  width: 2px;
+  border-radius: 1px;
+  background: var(--tile-snap-color);
+  opacity: 0.6;
+}
+
+.muuri-resize-ghost {
+  display: none;
+  border: 1px dashed var(--tile-overflow-color);
+  background: color-mix(in srgb, var(--tile-overflow-color) 8%, transparent);
+}
+
+.muuri-grid[data-resize-state="overflow"] .muuri-row-marker {
+  background: var(--tile-overflow-color);
+}
+
+.muuri-grid[data-resize-state="overflow"] .muuri-resize-ghost {
+  display: block;
+}
+
+.muuri-grid-item[data-resize-state="fill"] {
+  outline: 1px solid color-mix(in srgb, var(--tile-snap-color) 70%, transparent);
+  outline-offset: 1px;
+}
+
+.muuri-grid-item.muuri-will-move {
+  outline: 1px dashed var(--tile-overflow-color);
+  outline-offset: 1px;
 }
 
 .muuri-grid-item {
