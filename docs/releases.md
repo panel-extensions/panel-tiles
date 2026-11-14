@@ -1,5 +1,19 @@
 # Releases
 
+## Version 0.5.0
+
+### New Features
+
+- **Forgiving resize**: Widening a tile slightly past the end of its row now snaps it to fill the remaining row space exactly instead of reflowing the row. Only dragging further than the new `overflow_tolerance` parameter (56 pixels by default, `0` for the previous behavior) reflows on release. While resizing, a subtle outline and row-end marker show when the tile fills the row, and past the tolerance a dashed preview shows the released size and the tiles that will move are outlined. Colors follow the theme through the `--tile-snap-color` and `--tile-overflow-color` CSS variables. ([#15](https://github.com/panel-extensions/panel-tiles/pull/15))
+
+### Bug Fixes
+
+- Resized tiles no longer jump to another row after snapping to a neighbour's edge. Widths were converted against the grid's rounded width, so on fractional container widths (sidebars, padding, browser zoom) a snapped tile came out a fraction of a pixel too wide. Stored widths are now computed against the real width and rounded down so they always fit. ([#15](https://github.com/panel-extensions/panel-tiles/pull/15))
+- Resizing no longer shrinks the tile by its margins on every drag, and a height-only resize keeps the tile's width exactly. ([#15](https://github.com/panel-extensions/panel-tiles/pull/15))
+- Snapping picks the nearest edge on each axis, and snapping to the grid's edge is flush instead of 10px short. ([#15](https://github.com/panel-extensions/panel-tiles/pull/15))
+
+---
+
 ## Version 0.4.0
 
 ### New Features
