@@ -4,8 +4,9 @@ import pytest
 
 pytest.importorskip("playwright")
 
+from bokeh.models import Div
 from panel import Column, Spacer
-from panel.pane import Markdown
+from panel.pane import Bokeh, Markdown
 from panel.tests.util import serve_component, wait_until
 from playwright.sync_api import expect
 
@@ -25,6 +26,44 @@ def test_grid_no_console_errors(page):
 
     expect(page.locator(".markdown").locator("div")).to_have_text("Initial\n")
     assert [msg for msg in msgs if msg.type == "error"] == []
+
+
+# Makes the initial render of a Bokeh Div with the "broken" class throw.
+BREAK_DIV_RERENDER = """
+const timer = setInterval(() => {
+  let DivView
+  try {
+    DivView = window.Bokeh.Models.get("Div").prototype.default_view
+  } catch {
+    return
+  }
+  clearInterval(timer)
+  const rerender = DivView.prototype.rerender
+  DivView.prototype.rerender = function() {
+    if (this.model.css_classes.includes("broken")) {
+      throw new Error("broken tile")
+    }
+    return rerender.call(this)
+  }
+}, 1)
+"""
+
+
+def test_grid_shows_other_tiles_when_one_fails_to_render(page):
+    page.add_init_script(BREAK_DIV_RERENDER)
+    grid = TileGrid(
+        objects=[Bokeh(Div(text="Broken", css_classes=["broken"])), Markdown("Fine")],
+        editable=False,
+        local_save=False,
+        width=600,
+    )
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+    expect(page.locator(".markdown").locator("div")).to_have_text("Fine\n")
+    wait_until(lambda: items.evaluate_all("(els) => els.map((el) => el.style.opacity)") == ["", ""], page)
 
 
 def test_grid_renders_children_and_handles(page):

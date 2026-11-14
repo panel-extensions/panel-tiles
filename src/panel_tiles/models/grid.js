@@ -859,7 +859,12 @@ export async function render({model, el, view}) {
       added_models.push(child_model)
       added_indices.push(i)
       if (initial && cv) {
-        cv.rerender_ ? cv.rerender_() : cv.rerender()
+        // A tile that fails to render must not keep the others out of the grid.
+        try {
+          cv.rerender_ ? cv.rerender_() : cv.rerender()
+        } catch (e) {
+          console.error(e)
+        }
       }
     }
 
