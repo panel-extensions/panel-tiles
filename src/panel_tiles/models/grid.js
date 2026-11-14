@@ -198,6 +198,10 @@ const SNAP_RANGE = 50
 function make_editable(model, container, grid, state, onCommit) {
   const undo_stack = []
   let resizeStart = null
+  // A press on a resize handle, tracked from raw pointer events: interact
+  // reports snapped coordinates and fires no move while the snapped size is
+  // unchanged, as when a tile already filling its row is dragged past the end.
+  let press = null
   const minColWidth = () => model.min_col_width || null
   const tolerance = () => model.overflow_tolerance ?? 0
 
@@ -260,6 +264,52 @@ function make_editable(model, container, grid, state, onCommit) {
     onCommit()
   }
 
+  function onPointerDown(e) {
+    const handle = e.composedPath().find(n => n.classList?.contains("muuri-handle") && n.classList.contains("resize"))
+    const el = handle?.closest(".muuri-grid-item")
+    if (!el || el.parentElement !== container) { return }
+    const item = grid.getItem(el)
+    const margin = item.getMargin()
+    press = {
+      el, x: e.clientX, moved: false, plan: rowPlan(el),
+      border: el.getBoundingClientRect().width, outer: item.getWidth() + margin.left + margin.right,
+    }
+  }
+
+  function onPointerMove(e) {
+    if (!press || Math.abs(e.clientX - press.x) < 1) { return }
+    press.moved = true
+    const {el, plan} = press
+    // Once the size changes interact's move handler takes over.
+    if (!plan || Math.abs(el.getBoundingClientRect().width - press.border) > 0.5) { return }
+    const raw = press.outer + e.clientX - press.x
+    const snapped = snapEdge(raw, [], {range: SNAP_RANGE, fill: plan.fill, tolerance: tolerance()})
+    const decision = resolveRowResize(plan, snapped ?? raw, tolerance())
+    if (decision.state !== "fill") { return }
+    if (resizeStart?.el !== el) {
+      resizeStart = {el, rectWidth: press.border, width: parseFloat(el.getAttribute("data-width")) || 100, plan, decision: null, raw: true}
+    }
+    resizeStart.decision = decision
+    showResizeState(el, decision, el.getBoundingClientRect().height)
+  }
+
+  function onPointerUp() {
+    if (resizeStart?.raw && !state.interacting) {
+      clearResizeState(resizeStart.el)
+      resizeStart = null
+    }
+    press = null
+  }
+
+  window.addEventListener("pointerdown", onPointerDown, true)
+  window.addEventListener("pointermove", onPointerMove, true)
+  window.addEventListener("pointerup", onPointerUp, true)
+  model.on("remove", () => {
+    window.removeEventListener("pointerdown", onPointerDown, true)
+    window.removeEventListener("pointermove", onPointerMove, true)
+    window.removeEventListener("pointerup", onPointerUp, true)
+  })
+
   interact(".muuri-grid-item").resizable({
     edges: {right: ".muuri-handle.resize", bottom: ".muuri-handle.resize"},
     listeners: {
@@ -268,7 +318,7 @@ function make_editable(model, container, grid, state, onCommit) {
         const el = event.target
         resizeStart = {
           el, rectWidth: event.rect.width, width: parseFloat(el.getAttribute("data-width")) || 100,
-          plan: rowPlan(el), decision: null,
+          plan: press?.el === el ? press.plan : rowPlan(el), decision: null,
         }
         const item = grid.getItem(el);
         let height = el.style.height.slice(null, -2);
@@ -285,17 +335,19 @@ function make_editable(model, container, grid, state, onCommit) {
         container.classList.add("muuri-no-select")
         const item = grid.getItem(ev.target)
         const {left, right} = item.getMargin()
-        // ev.rect is the border box; height-only drags keep the authored width exactly.
         const ours = resizeStart?.el === ev.target
-        const unchanged = ours && Math.abs(ev.rect.width - resizeStart.rectWidth) < 0.5
         const h = ev.rect.height
         let outer = ev.rect.width + left + right
-        if (ours && resizeStart.plan && !unchanged) {
+        // The pointer, not the snapped rect, tells a sideways drag from a height-only one:
+        // a tile already filling its row snaps straight back to its own width.
+        if (ours && resizeStart.plan && press?.el === ev.target && press.moved) {
           const decision = resolveRowResize(resizeStart.plan, outer, tolerance())
           resizeStart.decision = decision
           outer = decision.width
           showResizeState(ev.target, decision, h)
         }
+        // ev.rect is the border box; a drag that ends at the starting width keeps the authored width exactly.
+        const unchanged = ours && Math.abs(outer - left - right - resizeStart.rectWidth) < 0.5
         const w = unchanged ? resizeStart.width : clampWidthForItem(grid, ev.target, widthPercent(outer, gridWidth(grid)))
         ev.target.style.zIndex = 100
         resizeItem(grid, ev.target, w, h, minColWidth(), false)

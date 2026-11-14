@@ -5,7 +5,6 @@ from typing import Literal
 
 import param
 from bokeh.embed.bundle import extension_dirs
-from panel.config import config
 from panel.custom import Children, JSComponent
 from panel.io import state
 from panel.layout.base import ListLike
@@ -135,9 +134,10 @@ class TileGrid(JSComponent, ListLike):
         if compiled != "compiling" and server:
             # Generate relative path to handle apps served on subpaths
             esm = ("" if state.rel_path else "./") + cls._component_resource_path(esm_path, compiled)
-            if config.autoreload:
-                modified = hashlib.sha256(str(esm_path.stat().st_mtime).encode("utf-8")).hexdigest()
-                esm += f"?{modified}"
+            # The bundle is served without cache headers, so a versioned URL is
+            # what stops browsers reusing the bundle of an older release.
+            modified = hashlib.sha256(str(esm_path.stat().st_mtime).encode("utf-8")).hexdigest()
+            esm += f"?{modified}"
         else:
             esm = esm_path.read_text(encoding="utf-8")
         return esm
