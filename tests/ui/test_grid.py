@@ -4,8 +4,10 @@ import pytest
 
 pytest.importorskip("playwright")
 
+from bokeh.models import Div
 from panel import Column, Spacer
-from panel.pane import Markdown
+from panel.custom import JSComponent
+from panel.pane import Bokeh, Markdown
 from panel.tests.util import serve_component, wait_until
 from playwright.sync_api import expect
 
@@ -25,6 +27,44 @@ def test_grid_no_console_errors(page):
 
     expect(page.locator(".markdown").locator("div")).to_have_text("Initial\n")
     assert [msg for msg in msgs if msg.type == "error"] == []
+
+
+# Makes the initial render of a Bokeh Div with the "broken" class throw.
+BREAK_DIV_RERENDER = """
+const timer = setInterval(() => {
+  let DivView
+  try {
+    DivView = window.Bokeh.Models.get("Div").prototype.default_view
+  } catch {
+    return
+  }
+  clearInterval(timer)
+  const rerender = DivView.prototype.rerender
+  DivView.prototype.rerender = function() {
+    if (this.model.css_classes.includes("broken")) {
+      throw new Error("broken tile")
+    }
+    return rerender.call(this)
+  }
+}, 1)
+"""
+
+
+def test_grid_shows_other_tiles_when_one_fails_to_render(page):
+    page.add_init_script(BREAK_DIV_RERENDER)
+    grid = TileGrid(
+        objects=[Bokeh(Div(text="Broken", css_classes=["broken"])), Markdown("Fine")],
+        editable=False,
+        local_save=False,
+        width=600,
+    )
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+    expect(page.locator(".markdown").locator("div")).to_have_text("Fine\n")
+    wait_until(lambda: items.evaluate_all("(els) => els.map((el) => el.style.opacity)") == ["", ""], page)
 
 
 def test_grid_renders_children_and_handles(page):
@@ -688,3 +728,78 @@ def test_grid_resize_past_end_of_full_row_shows_fill(page):
     expect(page.locator(".muuri-row-marker")).to_have_count(0)
     assert items.nth(0).get_attribute("data-width") == "50"
     assert settled_box(page, items.nth(1)) == before
+
+
+def item_boxes(page, items):
+    page.wait_for_timeout(500)
+    return [settled_box(page, items.nth(i)) for i in range(items.count())]
+
+
+def assert_laid_out_without_overlap(boxes):
+    for box in boxes:
+        assert box["width"] > 20 and box["height"] > 20
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1 :]:
+            apart_x = a["x"] + a["width"] <= b["x"] or b["x"] + b["width"] <= a["x"]
+            apart_y = a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"]
+            assert apart_x or apart_y, f"{a} overlaps {b}"
+
+
+def test_grid_created_hidden_lays_out_when_shown(page):
+    grid = TileGrid(
+        objects=[Markdown(f"Tile {i}") for i in range(3)],
+        local_save=False,
+        visible=False,
+        width=600,
+    )
+    serve_component(page, grid)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(3)
+    page.wait_for_timeout(500)
+
+    grid.visible = True
+
+    expect(items.nth(2)).to_be_visible()
+    assert_laid_out_without_overlap(item_boxes(page, items))
+
+
+def test_grid_items_added_while_parent_hidden_lay_out_when_shown(page):
+    grid = TileGrid(objects=[Markdown("Tile 0")], local_save=False, width=600)
+    parent = Column(grid)
+    serve_component(page, parent)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(1)
+    settled_box(page, items.nth(0))
+
+    parent.visible = False
+    grid.objects = [Markdown(f"Tile {i}") for i in range(3)]
+    expect(items).to_have_count(3)
+    page.wait_for_timeout(500)
+    parent.visible = True
+
+    expect(items.nth(2)).to_be_visible()
+    assert_laid_out_without_overlap(item_boxes(page, items))
+
+
+class StalledView(JSComponent):
+    """Stands in for any view elsewhere on the page whose ready promise never settles."""
+
+    _esm = """
+    export function render({view}) {
+      view._await_ready(new Promise(() => {}))
+    }
+    """
+
+
+def test_grid_renders_when_another_view_never_finishes(page):
+    grid = TileGrid(
+        objects=[Markdown(f"Tile {i}") for i in range(2)],
+        local_save=False,
+        width=600,
+    )
+    serve_component(page, Column(StalledView(), grid))
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+    expect(items.nth(1)).to_be_visible()
+    wait_until(lambda: items.nth(1).evaluate("el => getComputedStyle(el).opacity") == "1", page)
