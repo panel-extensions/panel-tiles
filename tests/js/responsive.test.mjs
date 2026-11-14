@@ -2,7 +2,8 @@ import assert from "node:assert/strict"
 import {test} from "node:test"
 
 import {
-  allocateColumns, balancedPartition, generateLayout, packLayout, resolveLayout,
+  FIT_SLACK_PCT, allocateColumns, balancedPartition, generateLayout, packLayout, planRowResize, resolveLayout,
+  resolveRowResize, snapEdge, widthPercent,
 } from "../../src/panel_tiles/models/responsive.js"
 
 const REF = 1400
@@ -183,4 +184,98 @@ test("resolveLayout prefers overrides outside the base band", () => {
   assert.deepEqual(resolveLayout({...args, band: "md"}), {layout, source: "base"})
   assert.equal(resolveLayout({...args, band: "sm", width: 500}).source, "generated")
   assert.deepEqual(resolveLayout({...args, band: "sm", width: 500, mode: "scale"}), {layout, source: "base"})
+})
+
+test("widthPercent stays under the pixel width it was taken from", () => {
+  for (const container of [1236.40625, 1212, 1279.703125, 640.5]) {
+    for (const px of [100, 353.59, 433.48, 0.37 * container, container]) {
+      const pct = widthPercent(px, container)
+      assert.ok(pct * container / 100 <= px - FIT_SLACK_PCT * container / 100 + 1e-9)
+      assert.ok(pct >= (px / container) * 100 - FIT_SLACK_PCT - 1e-4)
+      assert.equal(pct, Math.round(pct * 1e4) / 1e4)
+    }
+  }
+  assert.equal(widthPercent(0, 1000), 1)
+  assert.equal(widthPercent(1000, 1000), 100 - FIT_SLACK_PCT)
+  assert.equal(widthPercent(2000, 1000), 100)
+})
+
+test("a tile snapped flush to a boundary fits beside its neighbour at any width", () => {
+  // Tuning (30%) and Weights below Activity (66.6667%), snapped at 1236.4px.
+  const width = 1236.40625
+  const weights = widthPercent((66.6667 - 30) / 100 * width, width)
+  for (const other of [480, 800, 1210, 1600, 2560]) {
+    assert.ok((30 + weights) * other / 100 < 66.6667 * other / 100 - 1 / 64)
+  }
+})
+
+// Orientation map, Weights and Orientation tuning share a row with 192px spare; a full-width tile sits below.
+const ROW = [
+  {left: 0, top: 0, width: 384, height: 240},
+  {left: 384, top: 0, width: 384, height: 240},
+  {left: 768, top: 0, width: 320, height: 240},
+  {left: 0, top: 240, width: 1280, height: 180},
+]
+
+test("planRowResize leaves room for the tiles pushed along the row", () => {
+  const plan = planRowResize(ROW, 1, 1280)
+  assert.equal(plan.limit, 1280)
+  assert.deepEqual(plan.pushed.map(p => p.index), [2])
+  assert.equal(plan.fill, 1280 - 384 - 320)
+})
+
+test("planRowResize stops the row at an earlier tile reaching down into it", () => {
+  // A tall tile placed earlier occupies the right of the second row.
+  const items = [
+    {left: 0, top: 0, width: 800, height: 300},
+    {left: 800, top: 0, width: 480, height: 430},
+    {left: 0, top: 300, width: 360, height: 300},
+    {left: 360, top: 300, width: 360, height: 300},
+  ]
+  const plan = planRowResize(items, 3, 1280)
+  assert.equal(plan.limit, 800)
+  assert.deepEqual(plan.pushed, [])
+  assert.equal(plan.fill, 440)
+})
+
+test("resolveRowResize fills the row within tolerance and reflows beyond it", () => {
+  const plan = planRowResize(ROW, 1, 1280)
+  assert.deepEqual(resolveRowResize(plan, 500, 56), {state: "free", width: 500, final: 500, moving: []})
+  assert.equal(resolveRowResize(plan, plan.fill - 0.2, 56).state, "fill")
+  for (const over of [0, 1, 30, 56]) {
+    assert.deepEqual(resolveRowResize(plan, plan.fill + over, 56), {state: "fill", width: plan.fill, final: plan.fill, moving: []})
+  }
+  assert.deepEqual(resolveRowResize(plan, plan.fill + 57, 56), {state: "overflow", width: plan.fill, final: plan.fill + 57, moving: [2]})
+  assert.equal(resolveRowResize(plan, plan.fill + 1, 0).state, "overflow")
+})
+
+test("resolveRowResize moves the resized tile itself when it alone exceeds the row", () => {
+  const plan = planRowResize(ROW, 2, 1280)
+  assert.equal(plan.fill, 1280 - 768)
+  assert.deepEqual(resolveRowResize(plan, 600, 56).moving, [2])
+})
+
+test("resolveRowResize moves every pushed tile from the first that no longer fits", () => {
+  const items = [
+    {left: 0, top: 0, width: 300, height: 100},
+    {left: 300, top: 0, width: 300, height: 100},
+    {left: 600, top: 0, width: 300, height: 100},
+  ]
+  const plan = planRowResize(items, 0, 1000)
+  assert.equal(plan.fill, 400)
+  assert.deepEqual(resolveRowResize(plan, 500, 56).moving, [2])
+  assert.deepEqual(resolveRowResize(plan, 800, 56).moving, [1, 2])
+})
+
+test("snapEdge treats the row fill as the strongest target", () => {
+  const fill = 900
+  // Within tolerance past the fill the edge always lands on it, even next to another target.
+  assert.equal(snapEdge(940, [950, 1270], {range: 50, fill, tolerance: 56}), fill)
+  // Below the fill it competes on distance with targets that do not overflow.
+  assert.equal(snapEdge(870, [860, 1270], {range: 50, fill, tolerance: 56}), 860)
+  assert.equal(snapEdge(880, [860], {range: 50, fill, tolerance: 56}), fill)
+  // Past the tolerance only targets beyond it apply.
+  assert.equal(snapEdge(990, [950, 1000], {range: 50, fill, tolerance: 56}), 1000)
+  assert.equal(snapEdge(1100, [950], {range: 50, fill, tolerance: 56}), undefined)
+  assert.equal(snapEdge(1100, [1120, 1090], {range: 50}), 1090)
 })

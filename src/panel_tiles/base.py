@@ -51,6 +51,15 @@ class TileGrid(JSComponent, ListLike):
         band and optionally author a custom layout for it.""",
     )
 
+    overflow_tolerance = param.Integer(
+        default=56,
+        bounds=(0, None),
+        doc="""
+        How far in pixels a tile may be dragged past the end of its row
+        while resizing before the row reflows. Within this distance the
+        tile snaps to fill the remaining row space exactly.""",
+    )
+
     min_col_width = param.Integer(
         default=None,
         bounds=(50, None),

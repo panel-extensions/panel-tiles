@@ -2,7 +2,9 @@
 import Muuri from "https://esm.sh/muuri@0.9.5"
 import interact from "https://esm.sh/interactjs@1.10.27"
 
-import {DEFAULT_REFERENCE_WIDTH, resolveLayout} from "./responsive.js"
+import {
+  DEFAULT_REFERENCE_WIDTH, planRowResize, resolveLayout, resolveRowResize, snapEdge, widthPercent,
+} from "./responsive.js"
 
 function getLSKey(name) {
   return `${window.location.origin + window.location.pathname}::${name || "default"}`
@@ -65,13 +67,20 @@ function exportLayout(grid, modelIds) {
   return layout.filter(Boolean)
 }
 
+// Tile percentages resolve against the fractional width, which clientWidth rounds.
+function gridWidth(grid) {
+  const el = grid.getElement()
+  const style = getComputedStyle(el)
+  return el.getBoundingClientRect().width - (parseFloat(style.borderLeftWidth) || 0) - (parseFloat(style.borderRightWidth) || 0)
+}
+
 function setAuthoredWidth(el, width) {
   width = Math.min(100, Math.max(width, 1))
   el.setAttribute("data-width", width.toString())
 }
 
 function clampWidthForItem(grid, el, width) {
-  const containerWidth = grid.getElement().clientWidth
+  const containerWidth = gridWidth(grid)
   if (containerWidth > 0) {
     const itemMin = parseFloat(el.getAttribute("data-min-width")) || 0
     if (itemMin > 0) {
@@ -88,7 +97,7 @@ function clampWidthForItem(grid, el, width) {
 }
 
 function applyDisplayWidth(grid, el, minColWidth) {
-  const containerWidth = grid.getElement().clientWidth
+  const containerWidth = gridWidth(grid)
   const authored = parseFloat(el.getAttribute("data-width")) || 100
   let display = authored
   if (containerWidth > 0) {
@@ -184,9 +193,66 @@ function getInitialHeight(child_el, child_model, item_el) {
   return child_height ? child_height + 20 : null
 }
 
+const SNAP_RANGE = 50
+
 function make_editable(model, container, grid, state, onCommit) {
   const undo_stack = []
+  let resizeStart = null
   const minColWidth = () => model.min_col_width || null
+  const tolerance = () => model.overflow_tolerance ?? 0
+
+  const marker = document.createElement("div")
+  marker.className = "muuri-row-marker"
+  const ghost = document.createElement("div")
+  ghost.className = "muuri-resize-ghost"
+
+  function rowPlan(el) {
+    const items = grid.getItems().filter(item => item.isVisible())
+    const index = items.findIndex(item => item.getElement() === el)
+    if (index === -1) { return null }
+    const boxes = items.map(item => {
+      const {left, top} = item.getPosition()
+      const m = item.getMargin()
+      return {left, top, width: item.getWidth() + m.left + m.right, height: item.getHeight() + m.top + m.bottom}
+    })
+    const plan = planRowResize(boxes, index, gridWidth(grid))
+    // A tile that already overflows its row has no remaining space to fill.
+    if (plan.fill < boxes[index].width - 0.5) { return null }
+    return {...plan, top: boxes[index].top, elements: items.map(item => item.getElement())}
+  }
+
+  function showResizeState(el, decision, height) {
+    const {plan} = resizeStart
+    const margin = grid.getItem(el).getMargin()
+    container.dataset.resizeState = decision.state
+    el.dataset.resizeState = decision.state
+    for (const other of plan.elements) {
+      other.classList.toggle("muuri-will-move", other !== el && decision.moving.includes(plan.elements.indexOf(other)))
+    }
+    el.classList.toggle("muuri-will-move", decision.moving.includes(plan.index))
+    if (decision.state === "free") {
+      marker.remove()
+      ghost.remove()
+      return
+    }
+    if (!marker.isConnected) { container.append(marker, ghost) }
+    const top = `${plan.top + margin.top}px`
+    marker.style.left = `${plan.limit - margin.right / 2 - 1}px`
+    marker.style.top = top
+    marker.style.height = `${height}px`
+    ghost.style.left = `${plan.left + margin.left}px`
+    ghost.style.top = top
+    ghost.style.width = `${decision.final - margin.left - margin.right}px`
+    ghost.style.height = `${height}px`
+  }
+
+  function clearResizeState(el) {
+    delete container.dataset.resizeState
+    delete el.dataset.resizeState
+    for (const other of container.querySelectorAll(".muuri-will-move")) { other.classList.remove("muuri-will-move") }
+    marker.remove()
+    ghost.remove()
+  }
 
   function sync_layout() {
     // grid.move() emits "move" while a resolved layout is being applied.
@@ -200,6 +266,10 @@ function make_editable(model, container, grid, state, onCommit) {
       start(event) {
         state.interacting = true
         const el = event.target
+        resizeStart = {
+          el, rectWidth: event.rect.width, width: parseFloat(el.getAttribute("data-width")) || 100,
+          plan: rowPlan(el), decision: null,
+        }
         const item = grid.getItem(el);
         let height = el.style.height.slice(null, -2);
         if (!height) {
@@ -214,10 +284,19 @@ function make_editable(model, container, grid, state, onCommit) {
       move(ev) {
         container.classList.add("muuri-no-select")
         const item = grid.getItem(ev.target)
-        const {top, bottom} = item.getMargin()
-        const screenW = grid.getElement().clientWidth
-        const w = clampWidthForItem(grid, ev.target, (ev.rect.width / screenW) * 100)
-        const h = ev.rect.height - top - bottom
+        const {left, right} = item.getMargin()
+        // ev.rect is the border box; height-only drags keep the authored width exactly.
+        const ours = resizeStart?.el === ev.target
+        const unchanged = ours && Math.abs(ev.rect.width - resizeStart.rectWidth) < 0.5
+        const h = ev.rect.height
+        let outer = ev.rect.width + left + right
+        if (ours && resizeStart.plan && !unchanged) {
+          const decision = resolveRowResize(resizeStart.plan, outer, tolerance())
+          resizeStart.decision = decision
+          outer = decision.width
+          showResizeState(ev.target, decision, h)
+        }
+        const w = unchanged ? resizeStart.width : clampWidthForItem(grid, ev.target, widthPercent(outer, gridWidth(grid)))
         ev.target.style.zIndex = 100
         resizeItem(grid, ev.target, w, h, minColWidth(), false)
         grid.refreshItems(); grid.layout()
@@ -225,6 +304,13 @@ function make_editable(model, container, grid, state, onCommit) {
       },
       end(ev) {
         state.interacting = false
+        const decision = resizeStart?.el === ev.target ? resizeStart.decision : null
+        resizeStart = null
+        clearResizeState(ev.target)
+        if (decision?.state === "overflow") {
+          setAuthoredWidth(ev.target, clampWidthForItem(grid, ev.target, widthPercent(decision.final, gridWidth(grid))))
+          applyDisplayWidth(grid, ev.target, minColWidth())
+        }
         container.classList.remove("muuri-no-select")
         ev.target.style.removeProperty("z-index")
         grid.refreshItems(); grid.layout()
@@ -239,33 +325,31 @@ function make_editable(model, container, grid, state, onCommit) {
       interact.modifiers.snapEdges({
         offset: "parent",
         targets: [
-          // Snap to other items or right edge if within 25 pixels
           function(x, y, interaction) {
-            const target = {range: 50}
-            const grid_bbox = grid.getElement().getBoundingClientRect()
-            const resized_item = grid.getItem(interaction.element)
-            if (!resized_item) { return target }
-            const resized_margin = resized_item.getMargin()
+            const resized = grid.getItem(interaction.element)
+            if (!resized) { return {} }
+            const gridBox = grid.getElement().getBoundingClientRect()
+            const margin = resized.getMargin()
+            const plan = resizeStart?.el === interaction.element ? resizeStart.plan : null
+            // Targets are border-box edges that put the outer edges flush.
+            const xs = [gridWidth(grid) - margin.right]
+            const ys = []
             for (const item of grid.getItems()) {
-              const item_el = item.getElement()
-              if ((item_el === interaction.element) || !item.isVisible()) {
-                continue
-              }
-              const item_bbox = item_el.getBoundingClientRect()
-              const bottom = item_bbox.bottom - grid_bbox.top
-              const right = item_bbox.right - grid_bbox.left
-
-              if (Math.abs(right - x) < target.range) {
-                target.x = right + resized_margin.left + resized_margin.right
-              }
-              if (Math.abs(bottom - y) < target.range) {
-                target.y = bottom + resized_margin.top + resized_margin.bottom
-              }
+              const el = item.getElement()
+              if (el === interaction.element || !item.isVisible()) { continue }
+              const box = el.getBoundingClientRect()
+              const itemMargin = item.getMargin()
+              xs.push(box.right - gridBox.left + itemMargin.right - margin.right)
+              ys.push(box.bottom - gridBox.top + itemMargin.bottom - margin.bottom)
             }
-            if ((grid_bbox.width - x) < target.range) {
-              target.x = grid_bbox.width
+            // Filling the row's remaining space is the strongest horizontal target.
+            const fill = plan ? plan.left + plan.fill - margin.right : null
+            // Each axis is range-checked here, so interact must not apply its own radial range.
+            return {
+              x: snapEdge(x, xs, {range: SNAP_RANGE, fill, tolerance: tolerance()}),
+              y: snapEdge(y, ys, {range: SNAP_RANGE}),
+              range: Infinity,
             }
-            return target
           }
         ]
       })

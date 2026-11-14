@@ -142,6 +142,8 @@ markers = [
 filterwarnings = [
     "error",
     "ignore:unclosed <socket.socket:ResourceWarning",
+    # anyio's pytest plugin still imports the renamed CallSpec2
+    "ignore:_pytest.python.CallSpec2 has been renamed:pytest.PytestRemovedIn10Warning",
 ]
 testpaths = ["tests"]
 
