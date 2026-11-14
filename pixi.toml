@@ -84,6 +84,8 @@ depends-on = [{ task = "_install", environment = 'test-ui' }, "_install-ui"]
 
 [feature.doc.dependencies]
 zensical = "<0.0.17"
+hatchling = "*"
+hatch-vcs = "*"
 mkdocstrings = "*"
 mkdocstrings-python = "*"
 
