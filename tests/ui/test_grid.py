@@ -2,7 +2,7 @@ import pytest
 
 pytest.importorskip("playwright")
 
-from panel import Spacer
+from panel import Column, Spacer
 from panel.pane import Markdown
 from panel.tests.util import serve_component, wait_until
 from playwright.sync_api import expect
@@ -481,3 +481,95 @@ def test_grid_resize_clamped_by_min_max_width(page):
 
     # Authored width should be clamped at 25% (200px / 800px)
     wait_until(lambda: grid.layout[0]["width"] >= 25, page)
+
+
+SNAP_LAYOUT = [
+    {"index": 0, "width": 66.6667, "height": 120, "visible": True},
+    {"index": 1, "width": 33.3333, "height": 200, "visible": True},
+    {"index": 2, "width": 30, "height": 120, "visible": True},
+    {"index": 3, "width": 30, "height": 120, "visible": True},
+]
+
+
+def serve_snap_grid(page, padding="0.6px"):
+    grid = TileGrid(
+        objects=[Markdown(name) for name in ("Activity", "Map", "Tuning", "Weights")],
+        layout=SNAP_LAYOUT,
+        card=False,
+        local_save=False,
+        sizing_mode="stretch_width",
+    )
+    # Padding gives the grid a fractional width, as sidebars or browser zoom do.
+    serve_component(page, Column(grid, sizing_mode="stretch_width", margin=0, styles={"padding-right": padding}))
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(4)
+    wait_until(lambda: items.nth(1).evaluate("el => el.style.height") == "200px", page)
+    return grid, items
+
+
+def settled_box(page, locator):
+    boxes = [None]
+
+    def stable():
+        box = locator.bounding_box()
+        same = box is not None and box == boxes[0]
+        boxes[0] = box
+        page.wait_for_timeout(100)
+        return same
+
+    wait_until(stable, page)
+    return boxes[0]
+
+
+def drag_handle(page, item, dx, dy):
+    box = settled_box(page, item.locator(".muuri-handle.resize"))
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + dx, y + dy, steps=10)
+    page.mouse.up()
+
+
+def test_grid_resize_snapped_to_neighbour_edge_stays_on_row(page):
+    grid, items = serve_snap_grid(page)
+    container_width = page.locator(".muuri-grid").evaluate("el => el.getBoundingClientRect().width")
+    assert container_width != round(container_width)
+
+    activity, weights = settled_box(page, items.nth(0)), settled_box(page, items.nth(3))
+    activity_right = activity["x"] + activity["width"]
+    drag_handle(page, items.nth(3), activity_right - (weights["x"] + weights["width"]) + 15, 0)
+
+    wait_until(lambda: grid.layout[3]["width"] != 30, page)
+    after = settled_box(page, items.nth(3))
+    assert after["y"] == weights["y"]
+    assert after["x"] == weights["x"]
+    assert abs(after["x"] + after["width"] - activity_right) < 0.5
+    assert grid.layout[2]["width"] + grid.layout[3]["width"] < SNAP_LAYOUT[0]["width"]
+
+
+def test_grid_resize_snaps_flush_to_container_edge(page):
+    grid, items = serve_snap_grid(page)
+    grid.layout = [{**spec, "height": 120} for spec in SNAP_LAYOUT]
+    wait_until(lambda: items.nth(1).evaluate("el => el.style.height") == "120px", page)
+
+    map_box, weights = settled_box(page, items.nth(1)), settled_box(page, items.nth(3))
+    map_right = map_box["x"] + map_box["width"]
+    drag_handle(page, items.nth(3), map_right - (weights["x"] + weights["width"]) - 20, 0)
+
+    wait_until(lambda: grid.layout[3]["width"] > 60, page)
+    after = settled_box(page, items.nth(3))
+    assert after["y"] == weights["y"]
+    assert abs(after["x"] + after["width"] - map_right) < 0.5
+
+
+def test_grid_height_only_resize_keeps_width(page):
+    grid, items = serve_snap_grid(page, padding="0px")
+    before = settled_box(page, items.nth(2))
+
+    drag_handle(page, items.nth(2), 0, 80)
+
+    wait_until(lambda: grid.layout[2]["height"] != 120, page)
+    after = settled_box(page, items.nth(2))
+    assert grid.layout[2]["width"] == 30
+    assert after["width"] == before["width"]
+    assert after["height"] == pytest.approx(before["height"] + 80, abs=1)

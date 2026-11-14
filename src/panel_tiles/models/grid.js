@@ -2,7 +2,7 @@
 import Muuri from "https://esm.sh/muuri@0.9.5"
 import interact from "https://esm.sh/interactjs@1.10.27"
 
-import {DEFAULT_REFERENCE_WIDTH, resolveLayout} from "./responsive.js"
+import {DEFAULT_REFERENCE_WIDTH, resolveLayout, widthPercent} from "./responsive.js"
 
 function getLSKey(name) {
   return `${window.location.origin + window.location.pathname}::${name || "default"}`
@@ -65,13 +65,20 @@ function exportLayout(grid, modelIds) {
   return layout.filter(Boolean)
 }
 
+// Tile percentages resolve against the fractional width, which clientWidth rounds.
+function gridWidth(grid) {
+  const el = grid.getElement()
+  const style = getComputedStyle(el)
+  return el.getBoundingClientRect().width - (parseFloat(style.borderLeftWidth) || 0) - (parseFloat(style.borderRightWidth) || 0)
+}
+
 function setAuthoredWidth(el, width) {
   width = Math.min(100, Math.max(width, 1))
   el.setAttribute("data-width", width.toString())
 }
 
 function clampWidthForItem(grid, el, width) {
-  const containerWidth = grid.getElement().clientWidth
+  const containerWidth = gridWidth(grid)
   if (containerWidth > 0) {
     const itemMin = parseFloat(el.getAttribute("data-min-width")) || 0
     if (itemMin > 0) {
@@ -88,7 +95,7 @@ function clampWidthForItem(grid, el, width) {
 }
 
 function applyDisplayWidth(grid, el, minColWidth) {
-  const containerWidth = grid.getElement().clientWidth
+  const containerWidth = gridWidth(grid)
   const authored = parseFloat(el.getAttribute("data-width")) || 100
   let display = authored
   if (containerWidth > 0) {
@@ -184,8 +191,11 @@ function getInitialHeight(child_el, child_model, item_el) {
   return child_height ? child_height + 20 : null
 }
 
+const SNAP_RANGE = 50
+
 function make_editable(model, container, grid, state, onCommit) {
   const undo_stack = []
+  let resizeStart = null
   const minColWidth = () => model.min_col_width || null
 
   function sync_layout() {
@@ -200,6 +210,7 @@ function make_editable(model, container, grid, state, onCommit) {
       start(event) {
         state.interacting = true
         const el = event.target
+        resizeStart = {el, rectWidth: event.rect.width, width: parseFloat(el.getAttribute("data-width")) || 100}
         const item = grid.getItem(el);
         let height = el.style.height.slice(null, -2);
         if (!height) {
@@ -214,10 +225,12 @@ function make_editable(model, container, grid, state, onCommit) {
       move(ev) {
         container.classList.add("muuri-no-select")
         const item = grid.getItem(ev.target)
-        const {top, bottom} = item.getMargin()
-        const screenW = grid.getElement().clientWidth
-        const w = clampWidthForItem(grid, ev.target, (ev.rect.width / screenW) * 100)
-        const h = ev.rect.height - top - bottom
+        const {left, right} = item.getMargin()
+        // ev.rect is the border box; height-only drags keep the authored width exactly.
+        const unchanged = resizeStart?.el === ev.target && Math.abs(ev.rect.width - resizeStart.rectWidth) < 0.5
+        const outer = ev.rect.width + left + right
+        const w = unchanged ? resizeStart.width : clampWidthForItem(grid, ev.target, widthPercent(outer, gridWidth(grid)))
+        const h = ev.rect.height
         ev.target.style.zIndex = 100
         resizeItem(grid, ev.target, w, h, minColWidth(), false)
         grid.refreshItems(); grid.layout()
@@ -225,6 +238,7 @@ function make_editable(model, container, grid, state, onCommit) {
       },
       end(ev) {
         state.interacting = false
+        resizeStart = null
         container.classList.remove("muuri-no-select")
         ev.target.style.removeProperty("z-index")
         grid.refreshItems(); grid.layout()
@@ -239,33 +253,31 @@ function make_editable(model, container, grid, state, onCommit) {
       interact.modifiers.snapEdges({
         offset: "parent",
         targets: [
-          // Snap to other items or right edge if within 25 pixels
           function(x, y, interaction) {
-            const target = {range: 50}
-            const grid_bbox = grid.getElement().getBoundingClientRect()
-            const resized_item = grid.getItem(interaction.element)
-            if (!resized_item) { return target }
-            const resized_margin = resized_item.getMargin()
+            const resized = grid.getItem(interaction.element)
+            if (!resized) { return {} }
+            const gridBox = grid.getElement().getBoundingClientRect()
+            const margin = resized.getMargin()
+            // Targets are border-box edges that put the outer edges flush.
+            const xs = [gridWidth(grid) - margin.right]
+            const ys = []
             for (const item of grid.getItems()) {
-              const item_el = item.getElement()
-              if ((item_el === interaction.element) || !item.isVisible()) {
-                continue
-              }
-              const item_bbox = item_el.getBoundingClientRect()
-              const bottom = item_bbox.bottom - grid_bbox.top
-              const right = item_bbox.right - grid_bbox.left
-
-              if (Math.abs(right - x) < target.range) {
-                target.x = right + resized_margin.left + resized_margin.right
-              }
-              if (Math.abs(bottom - y) < target.range) {
-                target.y = bottom + resized_margin.top + resized_margin.bottom
-              }
+              const el = item.getElement()
+              if (el === interaction.element || !item.isVisible()) { continue }
+              const box = el.getBoundingClientRect()
+              const itemMargin = item.getMargin()
+              xs.push(box.right - gridBox.left + itemMargin.right - margin.right)
+              ys.push(box.bottom - gridBox.top + itemMargin.bottom - margin.bottom)
             }
-            if ((grid_bbox.width - x) < target.range) {
-              target.x = grid_bbox.width
+            const nearest = (values, value) => {
+              let best
+              for (const v of values) {
+                if (Math.abs(v - value) < SNAP_RANGE && (best === undefined || Math.abs(v - value) < Math.abs(best - value))) { best = v }
+              }
+              return best
             }
-            return target
+            // Each axis is range-checked here, so interact must not apply its own radial range.
+            return {x: nearest(xs, x), y: nearest(ys, y), range: Infinity}
           }
         ]
       })

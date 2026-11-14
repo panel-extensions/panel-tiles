@@ -6,6 +6,10 @@ export const DEFAULT_REFERENCE_WIDTH = 1200
 const PCT_EPS = 1e-3
 const PX_EPS = 0.5
 const DEFAULT_HEIGHT = 200
+// Browsers round tile widths to 1/64px layout units and Muuri moves a tile to
+// the next free slot when it overflows by more than 0.001px, so a width taken
+// from a resize stays this far under the edge it was dragged or snapped to.
+export const FIT_SLACK_PCT = 0.01
 
 function overlaps(a, b) {
   return (
@@ -197,6 +201,12 @@ function fitNode(node, avail, x, y, ctx, out) {
     return height
   }
   return 0
+}
+
+/** Percentage of `containerWidth` taken by `px`, less `FIT_SLACK_PCT` and rounded down to 1e-4. */
+export function widthPercent(px, containerWidth) {
+  const pct = (px / containerWidth) * 100 - FIT_SLACK_PCT
+  return Math.min(100, Math.max(1, Math.floor(pct * 1e4) / 1e4))
 }
 
 function roundPct(value) {

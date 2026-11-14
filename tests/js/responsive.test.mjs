@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import {test} from "node:test"
 
 import {
-  allocateColumns, balancedPartition, generateLayout, packLayout, resolveLayout,
+  FIT_SLACK_PCT, allocateColumns, balancedPartition, generateLayout, packLayout, resolveLayout, widthPercent,
 } from "../../src/panel_tiles/models/responsive.js"
 
 const REF = 1400
@@ -183,4 +183,27 @@ test("resolveLayout prefers overrides outside the base band", () => {
   assert.deepEqual(resolveLayout({...args, band: "md"}), {layout, source: "base"})
   assert.equal(resolveLayout({...args, band: "sm", width: 500}).source, "generated")
   assert.deepEqual(resolveLayout({...args, band: "sm", width: 500, mode: "scale"}), {layout, source: "base"})
+})
+
+test("widthPercent stays under the pixel width it was taken from", () => {
+  for (const container of [1236.40625, 1212, 1279.703125, 640.5]) {
+    for (const px of [100, 353.59, 433.48, 0.37 * container, container]) {
+      const pct = widthPercent(px, container)
+      assert.ok(pct * container / 100 <= px - FIT_SLACK_PCT * container / 100 + 1e-9)
+      assert.ok(pct >= (px / container) * 100 - FIT_SLACK_PCT - 1e-4)
+      assert.equal(pct, Math.round(pct * 1e4) / 1e4)
+    }
+  }
+  assert.equal(widthPercent(0, 1000), 1)
+  assert.equal(widthPercent(1000, 1000), 100 - FIT_SLACK_PCT)
+  assert.equal(widthPercent(2000, 1000), 100)
+})
+
+test("a tile snapped flush to a boundary fits beside its neighbour at any width", () => {
+  // Tuning (30%) and Weights below Activity (66.6667%), snapped at 1236.4px.
+  const width = 1236.40625
+  const weights = widthPercent((66.6667 - 30) / 100 * width, width)
+  for (const other of [480, 800, 1210, 1600, 2560]) {
+    assert.ok((30 + weights) * other / 100 < 66.6667 * other / 100 - 1 / 64)
+  }
 })
