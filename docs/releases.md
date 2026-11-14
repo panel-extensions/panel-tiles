@@ -1,5 +1,14 @@
 # Releases
 
+## Version 0.5.1
+
+### Bug Fixes
+
+- Dragging a tile that already fills its row slightly past the row end now shows the fill outline and row-end marker. Previously the drag snapped straight back to the tile's width without any feedback, so the forgiving resize was invisible on full rows. ([#16](https://github.com/panel-extensions/panel-tiles/pull/16))
+- The bundle URL now always carries a hash of the bundle, so browsers load the new code after an upgrade instead of reusing a cached bundle from an older release. ([#16](https://github.com/panel-extensions/panel-tiles/pull/16))
+
+---
+
 ## Version 0.5.0
 
 ### New Features
