@@ -193,6 +193,20 @@ function getInitialHeight(child_el, child_model, item_el) {
   return child_height ? child_height + 20 : null
 }
 
+// The tiles' own views, not `view.root.ready`: the root's promise chains
+// every pending render on the page, and a single one that never settles
+// (e.g. a view removed mid-render elsewhere in the app) would keep the grid
+// from ever showing its tiles.
+function childrenReady(view) {
+  const promises = []
+  const collect = (v) => {
+    promises.push(v.ready)
+    for (const child of v.child_views ?? []) { collect(child) }
+  }
+  for (const child of view.child_views ?? []) { collect(child) }
+  return Promise.all(promises)
+}
+
 const SNAP_RANGE = 50
 
 function make_editable(model, container, grid, state, onCommit) {
@@ -912,7 +926,7 @@ export async function render({model, el, view}) {
     try {
       // Wait for entire child view tree to finish rendering
       if (added.length) {
-        await view.root.ready
+        await childrenReady(view)
         await new Promise(resolve => requestAnimationFrame(resolve))
       }
 
@@ -999,7 +1013,7 @@ export async function render({model, el, view}) {
 
     const expected = (model.objects || []).length
     if (expected > 0) {
-      await view.root.ready
+      await childrenReady(view)
     }
 
     const children = model.get_child("objects")

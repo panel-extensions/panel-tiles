@@ -6,6 +6,7 @@ pytest.importorskip("playwright")
 
 from bokeh.models import Div
 from panel import Column, Spacer
+from panel.custom import JSComponent
 from panel.pane import Bokeh, Markdown
 from panel.tests.util import serve_component, wait_until
 from playwright.sync_api import expect
@@ -778,3 +779,27 @@ def test_grid_items_added_while_parent_hidden_lay_out_when_shown(page):
 
     expect(items.nth(2)).to_be_visible()
     assert_laid_out_without_overlap(item_boxes(page, items))
+
+
+class StalledView(JSComponent):
+    """Stands in for any view elsewhere on the page whose ready promise never settles."""
+
+    _esm = """
+    export function render({view}) {
+      view._await_ready(new Promise(() => {}))
+    }
+    """
+
+
+def test_grid_renders_when_another_view_never_finishes(page):
+    grid = TileGrid(
+        objects=[Markdown(f"Tile {i}") for i in range(2)],
+        local_save=False,
+        width=600,
+    )
+    serve_component(page, Column(StalledView(), grid))
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+    expect(items.nth(1)).to_be_visible()
+    wait_until(lambda: items.nth(1).evaluate("el => getComputedStyle(el).opacity") == "1", page)
