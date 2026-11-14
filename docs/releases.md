@@ -1,5 +1,15 @@
 # Releases
 
+## Version 0.5.2
+
+### Bug Fixes
+
+- A grid no longer stays blank for the rest of the session when another component on the page never finishes rendering, for example one removed before it mounted while switching layouts quickly. The grid now waits only for its own tiles instead of the whole page. ([#17](https://github.com/panel-extensions/panel-tiles/pull/17))
+- A grid laid out while hidden (its own `visible=False`, a hidden parent or an inactive tab) now lays out its tiles again when shown, instead of leaving them stacked at the top. ([#17](https://github.com/panel-extensions/panel-tiles/pull/17))
+- A tile that raises an error while rendering no longer leaves the whole grid empty; the error is logged and the other tiles render. ([#17](https://github.com/panel-extensions/panel-tiles/pull/17))
+
+---
+
 ## Version 0.5.1
 
 ### Bug Fixes
