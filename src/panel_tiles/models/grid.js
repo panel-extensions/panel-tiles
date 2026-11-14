@@ -501,6 +501,8 @@ export async function render({model, el, view}) {
   const ids = []
   const child_to_item = new Map()
   const model_id_to_item = new Map()
+  // Items added while the grid was hidden, still to be sized from their content.
+  const unsized = new Map()
   let last_children = []
 
   const grid = new Muuri(container, {
@@ -609,8 +611,9 @@ export async function render({model, el, view}) {
   const observer = new ResizeObserver(() => {
     const width = container.clientWidth
     if (width === lastWidth) { return }
+    const shown = !lastWidth && width > 0
     lastWidth = width
-    onResize()
+    if (shown) { onShown() } else { onResize() }
   })
   observer.observe(container)
   model.on("remove", () => {
@@ -796,6 +799,31 @@ export async function render({model, el, view}) {
     return item
   }
 
+  function isHidden() {
+    return !container.clientWidth
+  }
+
+  function sizeFromContent(item_el, child, child_model) {
+    const width = getInitialWidth(model, container, child, child_model, item_el)
+    const height = getInitialHeight(child, child_model, item_el)
+    resizeItem(grid, item_el, width, height, minColWidth(), false)
+  }
+
+  // Muuri measures items when it lays out, and while the grid is hidden (an
+  // inactive tab, a hidden parent) every item measures zero, so the layout
+  // it computed then stacks all tiles at the origin until something forces
+  // it to measure again.
+  function onShown() {
+    for (const [item_el, {child, child_model}] of unsized) {
+      if (item_el.isConnected) { sizeFromContent(item_el, child, child_model) }
+    }
+    unsized.clear()
+    reclampAll()
+    grid.refreshItems()
+    grid.layout(true)
+    refreshLayout(true)
+  }
+
   async function reconcile(children, initial=false) {
     const next_children = Array.isArray(children) ? children : []
     const next_models = model.objects || []
@@ -805,6 +833,7 @@ export async function render({model, el, view}) {
     for (const [mid, item] of model_id_to_item.entries()) {
       if (next_model_ids.has(mid)) { continue }
       model_id_to_item.delete(mid)
+      unsized.delete(item)
       for (const [child, it] of child_to_item.entries()) {
         if (it === item) { child_to_item.delete(child); break }
       }
@@ -900,11 +929,12 @@ export async function render({model, el, view}) {
             const muuri_item = grid.getItem(item_el)
             if (muuri_item) { grid.hide([muuri_item], {layout: false}) }
           }
+        } else if (isHidden()) {
+          // Content has no size while the grid is hidden, so measuring now
+          // would size the tile from nothing; size it once it is shown.
+          unsized.set(item_el, {child, child_model: next_models[i]})
         } else {
-          const child_model = next_models[i]
-          const width = getInitialWidth(model, container, child, child_model, item_el)
-          const height = getInitialHeight(child, child_model, item_el)
-          resizeItem(grid, item_el, width, height, minColWidth(), false)
+          sizeFromContent(item_el, child, next_models[i])
         }
       }
 
