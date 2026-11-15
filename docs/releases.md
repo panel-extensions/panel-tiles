@@ -1,5 +1,15 @@
 # Releases
 
+## Version 0.5.3
+
+### Bug Fixes
+
+- Removing or adding a tile no longer re-renders every tile that was in the grid when it first loaded. The grid now tells Panel which tiles it has already rendered, so the other tiles keep their plots and only reflow. ([#18](https://github.com/panel-extensions/panel-tiles/pull/18))
+- Resizing a tile beside tiles stacked on top of one another now shows the fill and overflow feedback. The room left in the row counted every stacked tile separately, so it came out too small and no feedback was shown at any drag distance. ([#19](https://github.com/panel-extensions/panel-tiles/pull/19))
+- The grid lays its tiles out again when its width changes without a window resize, for example when a sidebar opens or closes, instead of leaving them overlapping or spread apart. ([#20](https://github.com/panel-extensions/panel-tiles/pull/20))
+
+---
+
 ## Version 0.5.2
 
 ### Bug Fixes
