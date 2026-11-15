@@ -271,6 +271,23 @@ test("resolveRowResize moves the stacked tiles from the first that no longer fit
   assert.deepEqual(resolveRowResize(plan, 750, 20).moving, [1, 3, 2])
 })
 
+test("planRowResize bounds each pushed tile by its own row end", () => {
+  // Weights ends the resized tile's row but stops above Series, which sits lower in its band.
+  const items = [
+    {left: 0, top: 0, width: 400, height: 140},
+    {left: 400, top: 0, width: 400, height: 300},
+    {left: 800, top: 0, width: 200, height: 300},
+    {left: 0, top: 140, width: 200, height: 300},
+    {left: 200, top: 300, width: 400, height: 100},
+  ]
+  const plan = planRowResize(items, 3, 1000)
+  assert.equal(plan.limit, 400)
+  assert.deepEqual(plan.pushed.map(p => [p.index, p.limit]), [[4, 1000]])
+  assert.equal(plan.fill, 400)
+  assert.equal(plan.end, 400)
+  assert.deepEqual(resolveRowResize(plan, 450, 0).moving, [3])
+})
+
 test("resolveRowResize moves the resized tile itself when it alone exceeds the row", () => {
   const plan = planRowResize(ROW, 2, 1280)
   assert.equal(plan.fill, 1280 - 768)
