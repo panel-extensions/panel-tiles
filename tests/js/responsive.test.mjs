@@ -249,6 +249,28 @@ test("resolveRowResize fills the row within tolerance and reflows beyond it", ()
   assert.equal(resolveRowResize(plan, plan.fill + 1, 0).state, "overflow")
 })
 
+// A tall tile with two rows of tiles beside it: Map, Weights and Tuning above, Series below Weights.
+const STACKED = [
+  {left: 0, top: 0, width: 300, height: 320},
+  {left: 300, top: 0, width: 300, height: 140},
+  {left: 600, top: 0, width: 300, height: 140},
+  {left: 300, top: 140, width: 300, height: 140},
+]
+
+test("planRowResize counts tiles stacked beside the resized one once", () => {
+  const plan = planRowResize(STACKED, 0, 1000)
+  assert.deepEqual(plan.pushed.map(p => p.index), [1, 3, 2])
+  assert.deepEqual(plan.pushed.map(p => p.offset), [0, 0, 300])
+  assert.equal(plan.fill, 400)
+})
+
+test("resolveRowResize moves the stacked tiles from the first that no longer fits", () => {
+  const plan = planRowResize(STACKED, 0, 1000)
+  assert.equal(resolveRowResize(plan, 400, 20).state, "fill")
+  assert.deepEqual(resolveRowResize(plan, 450, 20), {state: "overflow", width: 400, final: 450, moving: [3, 2]})
+  assert.deepEqual(resolveRowResize(plan, 750, 20).moving, [1, 3, 2])
+})
+
 test("resolveRowResize moves the resized tile itself when it alone exceeds the row", () => {
   const plan = planRowResize(ROW, 2, 1280)
   assert.equal(plan.fill, 1280 - 768)

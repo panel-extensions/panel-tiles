@@ -730,6 +730,71 @@ def test_grid_resize_past_end_of_full_row_shows_fill(page):
     assert settled_box(page, items.nth(1)) == before
 
 
+STACKED_LAYOUT = [
+    {"index": 0, "width": 30, "height": 300, "visible": True},
+    {"index": 1, "width": 30, "height": 120, "visible": True},
+    {"index": 2, "width": 30, "height": 120, "visible": True},
+    {"index": 3, "width": 30, "height": 120, "visible": True},
+]
+
+
+def serve_stacked_grid(page):
+    """A tall Map with Weights and Tuning beside it and Series below Weights."""
+    grid = TileGrid(
+        objects=[Markdown(name) for name in ("Map", "Weights", "Tuning", "Series")],
+        layout=STACKED_LAYOUT,
+        local_save=False,
+        width=1000,
+    )
+    serve_component(page, grid)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(4)
+    wait_until(lambda: items.nth(0).evaluate("el => el.style.height") == "300px", page)
+    return grid, items
+
+
+def drag_stacked_past_row_end(page, items, overshoot):
+    grid_box = settled_box(page, page.locator(".muuri-grid"))
+    tuning = settled_box(page, items.nth(2))
+    spare = grid_box["x"] + grid_box["width"] - 10 - (tuning["x"] + tuning["width"])
+    handle = settled_box(page, items.nth(0).locator(".muuri-handle.resize"))
+    x, y = handle["x"] + handle["width"] / 2, handle["y"] + handle["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + spare + overshoot, y, steps=10)
+
+
+def test_grid_resize_beside_stacked_tiles_fills_row(page):
+    grid, items = serve_stacked_grid(page)
+    before = [settled_box(page, items.nth(i)) for i in range(4)]
+    drag_stacked_past_row_end(page, items, 30)
+
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "fill")
+    expect(items.nth(0)).to_have_attribute("data-resize-state", "fill")
+    expect(page.locator(".muuri-row-marker")).to_have_count(1)
+    expect(page.locator(".muuri-will-move")).to_have_count(0)
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[0]["width"] != 30, page)
+    after = [settled_box(page, items.nth(i)) for i in range(4)]
+    assert [box["y"] for box in after] == [box["y"] for box in before]
+    assert after[3]["x"] == after[1]["x"]
+
+
+def test_grid_resize_beside_stacked_tiles_shows_overflow(page):
+    grid, items = serve_stacked_grid(page)
+    drag_stacked_past_row_end(page, items, 160)
+
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
+    expect(items.nth(0)).to_have_attribute("data-resize-state", "overflow")
+    expect(page.locator(".muuri-resize-ghost")).to_be_visible()
+    expect(items.nth(2)).to_have_class(re.compile("muuri-will-move"))
+    expect(items.nth(3)).to_have_class(re.compile("muuri-will-move"))
+    expect(items.nth(1)).not_to_have_class(re.compile("muuri-will-move"))
+    page.mouse.up()
+    wait_until(lambda: grid.layout[0]["width"] > 40, page)
+
+
 def item_boxes(page, items):
     page.wait_for_timeout(500)
     return [settled_box(page, items.nth(i)) for i in range(items.count())]

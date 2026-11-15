@@ -227,8 +227,24 @@ export function planRowResize(items, index, containerWidth) {
     .map((o, j) => ({index: j, left: o.left, width: o.width}))
     .filter(({index: j}) => j > index && inBand(items[j]) && items[j].left < limit - PX_EPS)
     .sort((a, b) => a.left - b.left)
-  const used = pushed.reduce((sum, p) => sum + p.width, 0)
+  // Tiles stacked above one another in the band share their columns, so the
+  // row needs the width they cover, not the sum of their widths.
+  for (const p of pushed) { p.offset = coveredWidth(pushed, p.left) }
+  const used = coveredWidth(pushed, Infinity)
   return {index, left: r.left, width: r.width, limit, fill: limit - r.left - used, pushed}
+}
+
+/** Width covered by the spans of `boxes` left of `end`, overlaps counted once. */
+function coveredWidth(boxes, end) {
+  let covered = 0
+  let reach = -Infinity
+  for (const {left, width} of boxes) {
+    const from = Math.max(left, reach)
+    const to = Math.min(left + width, end)
+    if (to > from) { covered += to - from }
+    reach = Math.max(reach, left + width)
+  }
+  return covered
 }
 
 /**
@@ -243,13 +259,16 @@ export function resolveRowResize(plan, desired, tolerance) {
   if (desired <= plan.fill + tolerance) {
     return {state: "fill", width: plan.fill, final: plan.fill, moving: []}
   }
-  let right = plan.left + desired
+  const right = plan.left + desired
   let moving = []
   if (right > plan.limit + PX_EPS) {
     moving = [plan.index]
   } else {
-    const first = plan.pushed.findIndex(p => (right += p.width) > plan.limit + PX_EPS)
-    moving = first === -1 ? [] : plan.pushed.slice(first).map(p => p.index)
+    // Muuri places tiles in order, so every tile after the first that no
+    // longer fits is placed again.
+    const over = plan.pushed.filter(p => right + p.offset + p.width > plan.limit + PX_EPS)
+    const first = Math.min(...over.map(p => p.index))
+    moving = plan.pushed.filter(p => p.index >= first).map(p => p.index)
   }
   return {state: "overflow", width: plan.fill, final: desired, moving}
 }
