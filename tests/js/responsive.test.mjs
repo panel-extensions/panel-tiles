@@ -249,6 +249,45 @@ test("resolveRowResize fills the row within tolerance and reflows beyond it", ()
   assert.equal(resolveRowResize(plan, plan.fill + 1, 0).state, "overflow")
 })
 
+// A tall tile with two rows of tiles beside it: Map, Weights and Tuning above, Series below Weights.
+const STACKED = [
+  {left: 0, top: 0, width: 300, height: 320},
+  {left: 300, top: 0, width: 300, height: 140},
+  {left: 600, top: 0, width: 300, height: 140},
+  {left: 300, top: 140, width: 300, height: 140},
+]
+
+test("planRowResize counts tiles stacked beside the resized one once", () => {
+  const plan = planRowResize(STACKED, 0, 1000)
+  assert.deepEqual(plan.pushed.map(p => p.index), [1, 3, 2])
+  assert.deepEqual(plan.pushed.map(p => p.offset), [0, 0, 300])
+  assert.equal(plan.fill, 400)
+})
+
+test("resolveRowResize moves the stacked tiles from the first that no longer fits", () => {
+  const plan = planRowResize(STACKED, 0, 1000)
+  assert.equal(resolveRowResize(plan, 400, 20).state, "fill")
+  assert.deepEqual(resolveRowResize(plan, 450, 20), {state: "overflow", width: 400, final: 450, moving: [3, 2]})
+  assert.deepEqual(resolveRowResize(plan, 750, 20).moving, [1, 3, 2])
+})
+
+test("planRowResize bounds each pushed tile by its own row end", () => {
+  // Weights ends the resized tile's row but stops above Series, which sits lower in its band.
+  const items = [
+    {left: 0, top: 0, width: 400, height: 140},
+    {left: 400, top: 0, width: 400, height: 300},
+    {left: 800, top: 0, width: 200, height: 300},
+    {left: 0, top: 140, width: 200, height: 300},
+    {left: 200, top: 300, width: 400, height: 100},
+  ]
+  const plan = planRowResize(items, 3, 1000)
+  assert.equal(plan.limit, 400)
+  assert.deepEqual(plan.pushed.map(p => [p.index, p.limit]), [[4, 1000]])
+  assert.equal(plan.fill, 400)
+  assert.equal(plan.end, 400)
+  assert.deepEqual(resolveRowResize(plan, 450, 0).moving, [3])
+})
+
 test("resolveRowResize moves the resized tile itself when it alone exceeds the row", () => {
   const plan = planRowResize(ROW, 2, 1280)
   assert.equal(plan.fill, 1280 - 768)

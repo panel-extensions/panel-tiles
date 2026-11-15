@@ -211,24 +211,45 @@ export function widthPercent(px, containerWidth) {
 
 /**
  * Row geometry for widening `items[index]`, from Muuri's outer boxes (px) at
- * drag start. Earlier items to its right in its row band fix where the row
- * ends; later ones are pushed along, so `fill` is the widest it can grow
- * without anything reflowing.
+ * drag start. Earlier items to the right of a tile in its row fix where that
+ * tile's row ends; later items in the resized tile's band are pushed along,
+ * so `fill` is the widest it can grow without anything reflowing, and `end`
+ * is the row end that bounds it.
  */
 export function planRowResize(items, index, containerWidth) {
   const r = items[index]
-  const inBand = o => (
-    o !== r && o.top < r.top + r.height - PX_EPS && r.top < o.top + o.height - PX_EPS &&
-    o.left >= r.left + r.width - PX_EPS
-  )
-  let limit = containerWidth
-  items.forEach((o, j) => { if (j < index && inBand(o)) { limit = Math.min(limit, o.left) } })
+  const overlaps = (a, b) => a.top < b.top + b.height - PX_EPS && b.top < a.top + a.height - PX_EPS
+  const rightOf = (o, t) => o !== t && overlaps(o, t) && o.left >= t.left + t.width - PX_EPS
+  // Tiles placed before the resized one stay put, so each tile's row ends at the first of them to its right.
+  const rowEnd = t => items.reduce((end, o, j) => (j < index && rightOf(o, t) ? Math.min(end, o.left) : end), containerWidth)
+  const limit = rowEnd(r)
   const pushed = items
-    .map((o, j) => ({index: j, left: o.left, width: o.width}))
-    .filter(({index: j}) => j > index && inBand(items[j]) && items[j].left < limit - PX_EPS)
+    .map((o, j) => ({index: j, left: o.left, width: o.width, limit: rowEnd(o)}))
+    .filter(p => p.index > index && rightOf(items[p.index], r) && p.left < p.limit - PX_EPS)
     .sort((a, b) => a.left - b.left)
-  const used = pushed.reduce((sum, p) => sum + p.width, 0)
-  return {index, left: r.left, width: r.width, limit, fill: limit - r.left - used, pushed}
+  // Tiles stacked above one another in the band share their columns, so the
+  // row needs the width they cover, not the sum of their widths.
+  let fill = limit - r.left
+  let end = limit
+  for (const p of pushed) {
+    p.offset = coveredWidth(pushed, p.left)
+    const room = p.limit - r.left - p.offset - p.width
+    if (room < fill) { fill = room; end = p.limit }
+  }
+  return {index, left: r.left, width: r.width, limit, end, fill, pushed}
+}
+
+/** Width covered by the spans of `boxes` left of `end`, overlaps counted once. */
+function coveredWidth(boxes, end) {
+  let covered = 0
+  let reach = -Infinity
+  for (const {left, width} of boxes) {
+    const from = Math.max(left, reach)
+    const to = Math.min(left + width, end)
+    if (to > from) { covered += to - from }
+    reach = Math.max(reach, left + width)
+  }
+  return covered
 }
 
 /**
@@ -243,13 +264,16 @@ export function resolveRowResize(plan, desired, tolerance) {
   if (desired <= plan.fill + tolerance) {
     return {state: "fill", width: plan.fill, final: plan.fill, moving: []}
   }
-  let right = plan.left + desired
+  const right = plan.left + desired
   let moving = []
   if (right > plan.limit + PX_EPS) {
     moving = [plan.index]
   } else {
-    const first = plan.pushed.findIndex(p => (right += p.width) > plan.limit + PX_EPS)
-    moving = first === -1 ? [] : plan.pushed.slice(first).map(p => p.index)
+    // Muuri places tiles in order, so every tile after the first that no
+    // longer fits is placed again.
+    const over = plan.pushed.filter(p => right + p.offset + p.width > p.limit + PX_EPS)
+    const first = Math.min(...over.map(p => p.index))
+    moving = plan.pushed.filter(p => p.index >= first).map(p => p.index)
   }
   return {state: "overflow", width: plan.fill, final: desired, moving}
 }

@@ -255,7 +255,7 @@ function make_editable(model, container, grid, state, onCommit) {
     }
     if (!marker.isConnected) { container.append(marker, ghost) }
     const top = `${plan.top + margin.top}px`
-    marker.style.left = `${plan.limit - margin.right / 2 - 1}px`
+    marker.style.left = `${plan.end - margin.right / 2 - 1}px`
     marker.style.top = top
     marker.style.height = `${height}px`
     ghost.style.left = `${plan.left + margin.left}px`
