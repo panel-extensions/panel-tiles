@@ -803,3 +803,61 @@ def test_grid_renders_when_another_view_never_finishes(page):
     expect(items).to_have_count(2)
     expect(items.nth(1)).to_be_visible()
     wait_until(lambda: items.nth(1).evaluate("el => getComputedStyle(el).opacity") == "1", page)
+
+
+# Counts the renders of each Bokeh Div by its text.
+COUNT_DIV_RENDERS = """
+window.divRenders = {}
+const timer = setInterval(() => {
+  let DivView
+  try {
+    DivView = window.Bokeh.Models.get("Div").prototype.default_view
+  } catch {
+    return
+  }
+  clearInterval(timer)
+  const render = DivView.prototype.render
+  DivView.prototype.render = function() {
+    window.divRenders[this.model.text] = (window.divRenders[this.model.text] || 0) + 1
+    return render.call(this)
+  }
+}, 1)
+"""
+
+
+@pytest.mark.parametrize("close_action", [None, "remove"])
+def test_grid_remove_item_keeps_other_items_rendered(page, close_action):
+    page.add_init_script(COUNT_DIV_RENDERS)
+    grid = TileGrid(
+        objects=[Bokeh(Div(text=f"Tile {i}")) for i in range(3)],
+        local_save=False,
+        close_action=close_action,
+        width=600,
+    )
+    serve_component(page, grid)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(3)
+    expect(items.nth(2)).to_be_visible()
+    settled_box(page, items.nth(2))
+    renders = page.evaluate("window.divRenders")
+    assert renders == {"Tile 0": 1, "Tile 1": 1, "Tile 2": 1}
+    items.evaluate_all("""(els) => {
+      for (const el of els) {
+        el._marked = true
+        el.lastElementChild.firstChild._marked = true
+      }
+    }""")
+
+    if close_action:
+        items.nth(1).locator(".muuri-handle.close").click()
+    else:
+        grid.objects = [grid.objects[0], grid.objects[2]]
+
+    expect(items).to_have_count(2)
+    page.wait_for_timeout(500)
+    assert page.evaluate("window.divRenders") == renders
+    assert items.evaluate_all("(els) => els.map((el) => el._marked === true)") == [True, True]
+    assert items.evaluate_all("(els) => els.map((el) => el.lastElementChild.firstChild._marked === true)") == [True, True]
+    expect(items.nth(0)).to_contain_text("Tile 0")
+    expect(items.nth(1)).to_contain_text("Tile 2")
+    assert_laid_out_without_overlap(item_boxes(page, items))

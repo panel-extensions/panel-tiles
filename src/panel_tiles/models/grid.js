@@ -905,6 +905,9 @@ export async function render({model, el, view}) {
         // A tile that fails to render must not keep the others out of the grid.
         try {
           cv.rerender_ ? cv.rerender_() : cv.rerender()
+          // Panel's `render_children` re-renders every child missing from
+          // `_child_rendered` whenever `objects` changes.
+          view._child_rendered?.set(cv, true)
         } catch (e) {
           console.error(e)
         }
