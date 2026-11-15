@@ -926,3 +926,42 @@ def test_grid_remove_item_keeps_other_items_rendered(page, close_action):
     expect(items.nth(0)).to_contain_text("Tile 0")
     expect(items.nth(1)).to_contain_text("Tile 2")
     assert_laid_out_without_overlap(item_boxes(page, items))
+
+
+# Narrows the Column around the grid from CSS alone, as a sidebar opening or
+# closing does, without Bokeh laying anything out.
+SET_PARENT_PADDING = """([grid, padding]) => {
+  grid.getRootNode().host.getRootNode().host.style.paddingRight = `${padding}px`
+}"""
+
+
+@pytest.mark.parametrize("transition", [False, True], ids=["instant", "transition"])
+def test_grid_reflows_when_container_width_changes(page, transition):
+    grid = TileGrid(
+        objects=[Markdown(f"Tile {i}") for i in range(3)],
+        layout=[{"index": i, "width": 33, "height": 120, "visible": True} for i in range(3)],
+        # Below every width used here, so the resolved layout itself never changes.
+        reference_width=500,
+        local_save=False,
+        sizing_mode="stretch_width",
+    )
+    stylesheets = [":host { transition: padding-right 300ms ease; }"] if transition else []
+    serve_component(page, Column(grid, sizing_mode="stretch_width", margin=0, stylesheets=stylesheets))
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(3)
+    settled_box(page, items.nth(2))
+    grid_el = page.locator(".muuri-grid")
+    full = settled_box(page, grid_el)["width"]
+
+    for padding in (500, 100):
+        page.evaluate(SET_PARENT_PADDING, [grid_el.element_handle(), padding])
+        wait_until(lambda target=full - padding: abs(settled_box(page, grid_el)["width"] - target) < 1, page)
+        boxes = item_boxes(page, items)
+        assert_laid_out_without_overlap(boxes)
+        assert len({box["y"] for box in boxes}) == 1
+        # Each tile starts one margin (2 x 10px) after the one before it and the row ends inside the grid.
+        for before, after in zip(boxes, boxes[1:], strict=False):
+            assert abs(after["x"] - before["x"] - before["width"] - 20) < 1
+        grid_box = grid_el.bounding_box()
+        free = grid_box["x"] + grid_box["width"] - (boxes[2]["x"] + boxes[2]["width"])
+        assert 0 <= free < 0.01 * grid_box["width"] + 15, f"tiles leave {free}px free at width {grid_box['width']}"

@@ -601,37 +601,50 @@ export async function render({model, el, view}) {
   }
 
   function refreshLayout(force = false) {
-    if (!ids.length || state.interacting || !container.clientWidth) { return }
+    if (!ids.length || state.interacting || !container.clientWidth) { return false }
     const resolved = resolveCurrent()
     const sig = JSON.stringify(resolved.layout)
     const changed = force || sig !== displayed.sig
     displayed = {band: resolved.band, source: resolved.source, sig}
-    if (changed && resolved.layout?.length) { applyLayoutToGrid(resolved.layout) }
+    const apply = changed && !!resolved.layout?.length
+    if (apply) { applyLayoutToGrid(resolved.layout) }
     updateToolbar()
+    return apply
   }
 
   let resizeFrame = null
   let lastWidth = null
-  const onResize = () => {
+  let widthChanged = false
+  const onResize = (resized = false) => {
     reclampAll()
+    widthChanged = widthChanged || resized
     if (resizeFrame !== null) { return }
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = null
-      refreshLayout()
+      const relayout = widthChanged
+      widthChanged = false
+      // Tile widths are percentages that follow the container, but Muuri keeps
+      // the positions it computed at the old width until it lays out again.
+      if (!refreshLayout() && relayout && !state.interacting && container.clientWidth) {
+        grid.refreshItems()
+        grid.layout(true)
+      }
     })
   }
-  window.addEventListener("resize", onResize, true)
+  // Only a change in the container's width forces a layout; interactions dispatch synthetic window resizes.
+  const onWindowResize = () => onResize()
+  window.addEventListener("resize", onWindowResize, true)
   // Width can change without a window resize, e.g. when a sidebar collapses.
   const observer = new ResizeObserver(() => {
     const width = container.clientWidth
     if (width === lastWidth) { return }
     const shown = !lastWidth && width > 0
     lastWidth = width
-    if (shown) { onShown() } else { onResize() }
+    if (shown) { onShown() } else { onResize(true) }
   })
   observer.observe(container)
   model.on("remove", () => {
-    window.removeEventListener("resize", onResize, true)
+    window.removeEventListener("resize", onWindowResize, true)
     observer.disconnect()
   })
   model.on("min_col_width", () => { reclampAll(); refreshLayout() })
