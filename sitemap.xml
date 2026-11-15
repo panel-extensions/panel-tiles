@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url>
+        <loc>https://panel-extensions.github.io/panel-tiles/</loc>
+      </url>
+      <url>
+        <loc>https://panel-extensions.github.io/panel-tiles/how_to/basic_grid/</loc>
+      </url>
+      <url>
+        <loc>https://panel-extensions.github.io/panel-tiles/how_to/dynamic_tiles/</loc>
+      </url>
+      <url>
+        <loc>https://panel-extensions.github.io/panel-tiles/how_to/close_action/</loc>
+      </url>
+      <url>
+        <loc>https://panel-extensions.github.io/panel-tiles/how_to/local_save/</loc>
+      </url>
+      <url>
+        <loc>https://panel-extensions.github.io/panel-tiles/how_to/read_only/</loc>
+      </url>
+      <url>
+        <loc>https://panel-extensions.github.io/panel-tiles/reference/panel-tiles/</loc>
+      </url>
+</urlset>
