@@ -1,3 +1,4 @@
+import pytest
 from bokeh.embed.bundle import extension_dirs
 from panel import Spacer
 from panel.pane import Markdown
@@ -125,3 +126,97 @@ def test_grid_layout_mode_defaults_to_masonry():
     assert grid.layout_mode == "masonry"
     assert grid.columns is None
     assert grid.row_height is None
+
+
+def selected_grid(selected=None):
+    tiles = [Markdown(name) for name in "ABCD"]
+    return TileGrid(objects=tiles, selected=selected), tiles
+
+
+def test_grid_selected_defaults_to_none():
+    grid, _ = selected_grid()
+
+    assert grid.selected is None
+
+
+@pytest.mark.parametrize("value", [-1, 4, 10])
+def test_grid_selected_rejects_out_of_range(value):
+    grid, _ = selected_grid()
+
+    with pytest.raises(ValueError, match="selected"):
+        grid.selected = value
+    assert grid.selected is None
+
+
+def test_grid_selected_rejects_out_of_range_on_init():
+    with pytest.raises(ValueError, match="selected"):
+        TileGrid(objects=[Markdown("A")], selected=1)
+
+
+def test_grid_selected_shifts_when_tiles_removed_before_it():
+    grid, tiles = selected_grid(2)
+
+    grid.pop(0)
+
+    assert grid.selected == 1
+    assert grid.objects[grid.selected] is tiles[2]
+
+
+def test_grid_selected_shifts_when_tiles_inserted_before_it():
+    grid, tiles = selected_grid(1)
+
+    grid.insert(0, Markdown("New"))
+    grid.objects = [Markdown("Other"), *grid.objects]
+
+    assert grid.selected == 3
+    assert grid.objects[grid.selected] is tiles[1]
+
+
+def test_grid_selected_unchanged_when_tiles_change_after_it():
+    grid, tiles = selected_grid(1)
+
+    grid.append(Markdown("E"))
+    grid.pop(3)
+
+    assert grid.selected == 1
+
+
+def test_grid_selected_resets_when_its_tile_is_removed():
+    grid, tiles = selected_grid(2)
+
+    grid.remove(tiles[2])
+
+    assert grid.selected is None
+
+
+def test_grid_selected_resets_when_its_tile_is_replaced():
+    grid, _ = selected_grid(0)
+
+    grid[0] = Markdown("Replacement")
+
+    assert grid.selected is None
+
+
+def test_grid_selected_follows_reordered_tile():
+    grid, tiles = selected_grid(0)
+
+    grid.reverse()
+
+    assert grid.selected == 3
+
+
+def test_grid_selected_resets_when_cleared():
+    grid, _ = selected_grid(3)
+
+    grid.clear()
+
+    assert grid.selected is None
+
+
+def test_grid_remove_message_updates_selected():
+    grid, tiles = selected_grid(3)
+
+    grid._handle_msg({"action": "remove", "index": 1})
+
+    assert grid.selected == 2
+    assert grid.objects[2] is tiles[3]

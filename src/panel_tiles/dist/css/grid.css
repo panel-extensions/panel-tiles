@@ -16,6 +16,12 @@
   background: color-mix(in srgb, var(--tile-snap-color) 8%, transparent);
 }
 
+/* Declared before the resize feedback so its outlines win during a resize */
+.muuri-grid-item.muuri-selected {
+  outline: 1px solid color-mix(in srgb, var(--tile-snap-color) 45%, transparent);
+  outline-offset: 1px;
+}
+
 /* Resize feedback: filling the row end, or overflowing it on release */
 .muuri-row-marker,
 .muuri-resize-ghost {

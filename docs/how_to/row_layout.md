@@ -53,3 +53,18 @@ grid = TileGrid(objects=[...], layout_mode="rows", columns=12, row_height=50)
 ```
 
 With `columns=12` a tile's right edge always lands on one of twelve column lines, and its width is still stored as a percentage. `row_height` counts the tile's margins, so a tile two steps tall lines up with two tiles of one step stacked beside it. Both options also work in masonry mode.
+
+## Tracking the Selected Tile
+
+`selected` holds the index into `objects` of the tile that was last clicked, focused, dragged or resized:
+
+```python
+grid = TileGrid(objects=[...])
+
+def on_select(event):
+    print("Selected tile", event.new)
+
+grid.param.watch(on_select, "selected")
+```
+
+Setting `selected` from Python highlights that tile with a subtle outline. The index follows its tile when tiles are added or removed before it, and becomes `None` when the tile itself is removed or hidden with the close button. Values outside the range of `objects` raise a `ValueError`.

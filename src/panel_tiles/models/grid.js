@@ -250,7 +250,7 @@ function scrollTargets(el) {
   return targets
 }
 
-function make_editable(model, container, grid, state, onCommit) {
+function make_editable(model, container, grid, state, onCommit, onSelect) {
   const undo_stack = []
   let resizeStart = null
   // A press on a resize handle, tracked from raw pointer events: interact
@@ -379,6 +379,7 @@ function make_editable(model, container, grid, state, onCommit) {
       start(event) {
         state.interacting = true
         const el = event.target
+        onSelect(el)
         resizeStart = {
           el, rectWidth: event.rect.width, width: parseFloat(el.getAttribute("data-width")) || 100,
           plan: press?.el === el ? press.plan : rowPlan(el), decision: null,
@@ -485,6 +486,7 @@ function make_editable(model, container, grid, state, onCommit) {
   // Committing on "move" would send a layout for every slot a tile passes through mid-drag.
   grid
     .on("dragInit", () => container.classList.remove("muuri-no-select"))
+    .on("dragStart", item => onSelect(item.getElement()))
     .on("dragEnd", () => {
       container.classList.remove("muuri-no-select")
       sync_layout()
@@ -823,9 +825,34 @@ export async function render({model, el, view}) {
     return -1
   }
 
+  function onSelect(item_el) {
+    const index = itemIndex(item_el)
+    if (index !== -1 && model.selected !== index) { model.selected = index }
+  }
+
+  function showSelected() {
+    const models = model.objects || []
+    const selected = models[model.selected ?? -1]?.id
+    for (const [mid, item_el] of model_id_to_item.entries()) {
+      item_el.classList.toggle("muuri-selected", selected !== undefined && mid === selected)
+    }
+  }
+
+  // Capture phase, so content that stops propagation still selects its tile.
+  // Closing a tile is not interacting with it, so the close handle selects nothing.
+  function selectFromEvent(e) {
+    const path = e.composedPath()
+    if (path.some(n => n.classList?.contains("close") && n.classList.contains("muuri-handle"))) { return }
+    const tile = path.find(n => n.parentElement === container && n.classList?.contains("muuri-grid-item"))
+    if (tile) { onSelect(tile) }
+  }
+  container.addEventListener("pointerdown", selectFromEvent, true)
+  container.addEventListener("focusin", selectFromEvent, true)
+  model.on("selected", showSelected)
+
   let sync = null
   if (model.editable) {
-    sync = make_editable(model, container, grid, state, commitEdit)
+    sync = make_editable(model, container, grid, state, commitEdit, onSelect)
   }
 
   function applyLayoutToGrid(layout) {
@@ -914,6 +941,7 @@ export async function render({model, el, view}) {
           const muuri_item = grid.getItem(item)
           if (muuri_item) {
             grid.hide([muuri_item], {layout: true})
+            if (model.selected === idx) { model.selected = null }
             if (sync) { sync() }
           }
         } else {
@@ -1084,6 +1112,7 @@ export async function render({model, el, view}) {
       grid.layout()
       // Resolve before revealing new tiles so narrow screens never flash the base layout.
       if (added.length) { refreshLayout(true) }
+      showSelected()
     } finally {
       for (const item_el of added) {
         item_el.style.opacity = ""
