@@ -6,6 +6,16 @@
   height: 100%;
 }
 
+/* Where a dragged tile will land */
+.muuri-drag-placeholder {
+  box-sizing: border-box;
+  z-index: 0;
+  pointer-events: none;
+  border: 2px dashed color-mix(in srgb, var(--tile-snap-color) 60%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--tile-snap-color) 8%, transparent);
+}
+
 /* Resize feedback: filling the row end, or overflowing it on release */
 .muuri-row-marker,
 .muuri-resize-ghost {

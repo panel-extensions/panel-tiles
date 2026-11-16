@@ -3,7 +3,8 @@ import Muuri from "https://esm.sh/muuri@0.9.5"
 import interact from "https://esm.sh/interactjs@1.10.27"
 
 import {
-  DEFAULT_REFERENCE_WIDTH, planRowResize, resolveLayout, resolveRowResize, snapEdge, widthPercent,
+  DEFAULT_REFERENCE_WIDTH, dropTarget, moveIndex, packRows, planRowResize, resolveLayout, resolveRowResize, snapEdge,
+  widthPercent,
 } from "./responsive.js"
 
 function getLSKey(name) {
@@ -60,8 +61,9 @@ function exportLayout(grid, modelIds) {
       height = parseFloat(height)
     }
     const width = parseFloat(el.getAttribute("data-width")) || 100
+    // A hide applies with the next layout, which the default packer computes asynchronously.
     layout[modelIdx] = {
-      index: visualIdx, width, height, visible: item.isVisible()
+      index: visualIdx, width, height, visible: item.isActive()
     }
   }
   return layout.filter(Boolean)
@@ -208,6 +210,45 @@ function childrenReady(view) {
 }
 
 const SNAP_RANGE = 50
+const RESIZE_NOTIFY_MS = 100
+
+function outerSize(item) {
+  const m = item.getMargin()
+  return {width: item.getWidth() + m.left + m.right, height: item.getHeight() + m.top + m.bottom}
+}
+
+/** Muuri `layout` option placing items with `packRows`; `onRows` receives the rows with their items. */
+function rowLayout(onRows) {
+  return (grid, id, items, width, height, callback) => {
+    const {rects, rows, height: total} = packRows(items.map(outerSize), width)
+    onRows({rows, rects, items})
+    const borders = grid._boxSizing === "border-box" ? grid._borderTop + grid._borderBottom : 0
+    callback({id, items, slots: rects.flatMap(r => [r.x, r.y]), styles: {height: `${total + borders}px`}})
+  }
+}
+
+/** Nearest grid line of `step` from `origin` to `x`, offset by `offset`. */
+function nearestStep(x, origin, step, offset, max = Infinity) {
+  const n = Math.max(1, Math.round((x + offset - origin) / step))
+  return Math.min(max, origin + n * step) - offset
+}
+
+function scrollTargets(el) {
+  const targets = [{element: window, priority: 0}]
+  let node = el.parentNode
+  while (node && node !== document.body && node !== document.documentElement && node !== document) {
+    if (node instanceof ShadowRoot) { node = node.host; continue }
+    if (node instanceof Element) {
+      const style = getComputedStyle(node)
+      if (/auto|scroll|overlay/.test(style.overflowY) && node.scrollHeight > node.clientHeight) {
+        targets.push({element: node, priority: 1})
+        break
+      }
+    }
+    node = node.parentNode
+  }
+  return targets
+}
 
 function make_editable(model, container, grid, state, onCommit) {
   const undo_stack = []
@@ -218,6 +259,14 @@ function make_editable(model, container, grid, state, onCommit) {
   let press = null
   const minColWidth = () => model.min_col_width || null
   const tolerance = () => model.overflow_tolerance ?? 0
+  let notified = 0
+  // Tile content follows window resizes; notifying on every pointer move re-lays out every plot in the tile.
+  function notifyResize(force = false) {
+    const now = performance.now()
+    if (!force && now - notified < RESIZE_NOTIFY_MS) { return }
+    notified = now
+    window.dispatchEvent(new Event("resize"))
+  }
 
   const marker = document.createElement("div")
   marker.className = "muuri-row-marker"
@@ -366,7 +415,7 @@ function make_editable(model, container, grid, state, onCommit) {
         ev.target.style.zIndex = 100
         resizeItem(grid, ev.target, w, h, minColWidth(), false)
         grid.refreshItems(); grid.layout()
-        window.dispatchEvent(new Event("resize"))
+        notifyResize()
       },
       end(ev) {
         state.interacting = false
@@ -381,7 +430,7 @@ function make_editable(model, container, grid, state, onCommit) {
         ev.target.style.removeProperty("z-index")
         grid.refreshItems(); grid.layout()
         sync_layout()
-        window.dispatchEvent(new Event("resize"))
+        notifyResize(true)
       }
     },
     modifiers: [
@@ -410,21 +459,32 @@ function make_editable(model, container, grid, state, onCommit) {
             }
             // Filling the row's remaining space is the strongest horizontal target.
             const fill = plan ? plan.left + plan.fill - margin.right : null
-            // Each axis is range-checked here, so interact must not apply its own radial range.
-            return {
-              x: snapEdge(x, xs, {range: SNAP_RANGE, fill, tolerance: tolerance()}),
-              y: snapEdge(y, ys, {range: SNAP_RANGE}),
-              range: Infinity,
+            const {top} = resized.getPosition()
+            const width = gridWidth(grid)
+            const columns = model.columns > 0 ? width / model.columns : null
+            const rowHeight = model.row_height > 0 ? model.row_height : null
+            if (columns) {
+              for (let k = 1; k <= model.columns; k++) { xs.push(k * columns - margin.right) }
             }
+            if (rowHeight) {
+              for (let k = 1; top + k * rowHeight - margin.bottom < y + SNAP_RANGE; k++) { ys.push(top + k * rowHeight - margin.bottom) }
+            }
+            let sx = snapEdge(x, xs, {range: SNAP_RANGE, fill, tolerance: tolerance()})
+            let sy = snapEdge(y, ys, {range: SNAP_RANGE})
+            // Columns and rows hold the edge on a grid line even out of snapping range.
+            if (sx === undefined && columns) { sx = nearestStep(x, 0, columns, margin.right, width) }
+            if (sy === undefined && rowHeight) { sy = nearestStep(y, top, rowHeight, margin.bottom) }
+            // Each axis is range-checked here, so interact must not apply its own radial range.
+            return {x: sx, y: sy, range: Infinity}
           }
         ]
       })
     ]
   })
 
+  // Committing on "move" would send a layout for every slot a tile passes through mid-drag.
   grid
     .on("dragInit", () => container.classList.remove("muuri-no-select"))
-    .on("move", () => sync_layout())
     .on("dragEnd", () => {
       container.classList.remove("muuri-no-select")
       sync_layout()
@@ -519,10 +579,53 @@ export async function render({model, el, view}) {
   const unsized = new Map()
   let last_children = []
 
+  const rowsMode = () => model.layout_mode === "rows"
+  let packed = null
+  const layoutRows = rowLayout(result => { packed = result })
+
+  function rowSortPredicate(item, event) {
+    if (!packed || !event) { return null }
+    const box = container.getBoundingClientRect()
+    const style = getComputedStyle(container)
+    const x = event.clientX - box.left - (parseFloat(style.borderLeftWidth) || 0)
+    const y = event.clientY - box.top - (parseFloat(style.borderTopWidth) || 0)
+    const target = dropTarget(packed.rows, packed.rects, packed.items.indexOf(item), x, y)
+    if (!target) { return null }
+    const all = grid.getItems()
+    const current = all.indexOf(item)
+    const index = target.end ? all.length - 1 : moveIndex(current, all.indexOf(packed.items[target.ref]), target.side)
+    return {index, action: "move"}
+  }
+
   const grid = new Muuri(container, {
     dragEnabled: !!model.editable,
     dragHandle: ".muuri-handle.drag",
-    layout: {fillGaps: model.fill_gaps},
+    layout: (...args) => {
+      if (rowsMode()) { return layoutRows(...args) }
+      packed = null
+      Muuri.defaultPacker.setOptions({fillGaps: model.fill_gaps})
+      return Muuri.defaultPacker.createLayout(...args)
+    },
+    // The ResizeObserver below lays the grid out when its width changes.
+    layoutOnResize: false,
+    dragSortPredicate: (item, event) => (
+      rowsMode() ? rowSortPredicate(item, event) : Muuri.ItemDrag.defaultSortPredicate(item, {threshold: 50, action: "move"})
+    ),
+    // The pointer predicate is stable, so the default bounce-back guard would only block valid moves back.
+    dragSortHeuristics: {minBounceBackAngle: rowsMode() ? 0 : 1},
+    dragPlaceholder: {
+      enabled: true,
+      createElement: () => {
+        const el = document.createElement("div")
+        el.className = "muuri-drag-placeholder"
+        return el
+      },
+    },
+    dragAutoScroll: {
+      targets: () => scrollTargets(container),
+      handle: Muuri.AutoScroller.pointerHandle(40),
+      sortDuringScroll: true,
+    },
     sortData: {
       id: (_, el) => {
         const index = ids.indexOf(el.getAttribute("data-id"))
@@ -588,6 +691,7 @@ export async function render({model, el, view}) {
       width,
       referenceWidth: referenceWidth(),
       mode: model.responsive_mode,
+      packing: model.layout_mode,
       shrink: model.wrap_shrink ?? 0.5,
       ...measure(),
     })
@@ -648,6 +752,11 @@ export async function render({model, el, view}) {
     observer.disconnect()
   })
   model.on("min_col_width", () => { reclampAll(); refreshLayout() })
+  model.on("layout_mode", () => {
+    grid._settings.dragSortHeuristics.minBounceBackAngle = rowsMode() ? 0 : 1
+    if (!refreshLayout()) { grid.layout() }
+  })
+  model.on("fill_gaps", () => grid.layout())
   model.on("wrap_shrink", () => refreshLayout())
   model.on("responsive_mode", () => refreshLayout())
   model.on("reference_width", () => {
@@ -704,6 +813,14 @@ export async function render({model, el, view}) {
     setOverrides(layouts)
     model.send_msg({action: "delete_responsive_layout", band})
     refreshLayout(true)
+  }
+
+  function itemIndex(item_el) {
+    const models = model.objects || []
+    for (const [mid, it] of model_id_to_item.entries()) {
+      if (it === item_el) { return models.findIndex(m => m?.id === mid) }
+    }
+    return -1
   }
 
   let sync = null
@@ -791,14 +908,7 @@ export async function render({model, el, view}) {
       close.title = "Close"
       close.addEventListener("click", (e) => {
         e.stopPropagation()
-        const models = model.objects || []
-        let idx = -1
-        for (const [mid, it] of model_id_to_item.entries()) {
-          if (it === item) {
-            idx = models.findIndex(m => m?.id === mid)
-            break
-          }
-        }
+        const idx = itemIndex(item)
         if (idx === -1) { return }
         if (model.close_action === "hide") {
           const muuri_item = grid.getItem(item)

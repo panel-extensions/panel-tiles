@@ -39,7 +39,44 @@ class TileGrid(JSComponent, ListLike):
 
     elevation = param.Integer(default=3, bounds=(0, 20))
 
-    fill_gaps = param.Boolean(default=True)
+    fill_gaps = param.Boolean(
+        default=True,
+        doc="""
+        Whether later tiles may fill gaps left anywhere above them when
+        `layout_mode="masonry"`. Has no effect in "rows" mode.""",
+    )
+
+    layout_mode = param.Selector(
+        default="masonry",
+        objects=["masonry", "rows"],
+        doc="""
+        How tiles are packed. "masonry" places each tile in the top-left-most
+        free slot, so later tiles backfill gaps anywhere in the grid (see
+        `fill_gaps`). "rows" fills rows left to right in order: each row is as
+        tall as its tallest tile and the next row starts below it. Shorter
+        tiles may stack in the space beside a taller tile within the same row
+        but never move into an earlier row, and dragging inserts a tile
+        before or after the tile under the pointer.""",
+    )
+
+    columns = param.Integer(
+        default=None,
+        bounds=(1, None),
+        doc="""
+        Number of columns resized tile edges snap to, e.g. 12. Widths are
+        still stored as percentages. When unset, tiles only snap to the
+        edges of other tiles and the end of their row.""",
+    )
+
+    row_height = param.Integer(
+        default=None,
+        bounds=(1, None),
+        doc="""
+        Pixel step resized tile heights snap to, including the tile's
+        margins, so a tile two steps tall lines up with two stacked tiles one
+        step tall. When unset, heights only snap to the edges of other
+        tiles.""",
+    )
 
     breakpoints = param.List(
         default=[],

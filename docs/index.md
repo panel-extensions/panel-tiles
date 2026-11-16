@@ -44,6 +44,7 @@ pip install panel-tiles
 ## Features
 
 - Drag-and-drop tile reordering
+- Masonry or row-based packing with optional column and row snapping
 - Resize tiles from the corner handle
 - Configurable layout with percentage widths and pixel heights
 - Responsive breakpoints with per-breakpoint layouts
@@ -55,6 +56,7 @@ pip install panel-tiles
 ## How-To Guides
 
 - [Create a Basic Tile Grid](how_to/basic_grid.md)
+- [Lay Out Tiles in Rows](how_to/row_layout.md)
 - [Add and Remove Tiles Dynamically](how_to/dynamic_tiles.md)
 - [Configure Close Buttons](how_to/close_action.md)
 - [Persist Layout with localStorage](how_to/local_save.md)

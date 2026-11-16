@@ -117,3 +117,11 @@ def test_grid_bundle_url_is_versioned_without_autoreload():
     path, _, version = url.partition("?")
     assert path.endswith("panel-tiles.bundle.js")
     assert len(version) == 64
+
+
+def test_grid_layout_mode_defaults_to_masonry():
+    grid = TileGrid(objects=[Markdown("A")])
+
+    assert grid.layout_mode == "masonry"
+    assert grid.columns is None
+    assert grid.row_height is None

@@ -11,6 +11,7 @@ nav = [
   {"Home" = "index.md"},
   {"How-to" = [
     {"Basic Grid" = "how_to/basic_grid.md"},
+    {"Row Layout" = "how_to/row_layout.md"},
     {"Dynamic Tiles" = "how_to/dynamic_tiles.md"},
     {"Close Action" = "how_to/close_action.md"},
     {"Local Save" = "how_to/local_save.md"},

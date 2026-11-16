@@ -2,8 +2,8 @@ import assert from "node:assert/strict"
 import {test} from "node:test"
 
 import {
-  FIT_SLACK_PCT, allocateColumns, balancedPartition, generateLayout, packLayout, planRowResize, resolveLayout,
-  resolveRowResize, snapEdge, widthPercent,
+  FIT_SLACK_PCT, allocateColumns, balancedPartition, dropTarget, generateLayout, moveIndex, packLayout, packRows,
+  planRowResize, resolveLayout, resolveRowResize, snapEdge, widthPercent,
 } from "../../src/panel_tiles/models/responsive.js"
 
 const REF = 1400
@@ -317,4 +317,123 @@ test("snapEdge treats the row fill as the strongest target", () => {
   assert.equal(snapEdge(990, [950, 1000], {range: 50, fill, tolerance: 56}), 1000)
   assert.equal(snapEdge(1100, [950], {range: 50, fill, tolerance: 56}), undefined)
   assert.equal(snapEdge(1100, [1120, 1090], {range: 50}), 1090)
+})
+
+function boxes(...specs) {
+  return specs.map(([width, height]) => ({width, height}))
+}
+
+function positions(rects) {
+  return rects.map(r => [r.x, r.y])
+}
+
+test("packRows starts each row at the bottom of the tallest tile in the previous one", () => {
+  const {rects, rows, height} = packRows(boxes([40, 100], [40, 300], [40, 250], [60, 120]), 100)
+  assert.deepEqual(positions(rects), [[0, 0], [40, 0], [0, 300], [40, 300]])
+  assert.deepEqual(rows, [{top: 0, bottom: 300, items: [0, 1]}, {top: 300, bottom: 550, items: [2, 3]}])
+  assert.equal(height, 550)
+})
+
+test("packRows never backfills an earlier row", () => {
+  // Masonry puts the last tile into the gap under the first one.
+  const entries = boxes([50, 100], [50, 300], [100, 100], [50, 100])
+  const masonry = packLayout(entries.map((e, key) => ({key, ...e})))
+  assert.deepEqual([masonry[3].x, masonry[3].y], [0, 100])
+  const {rects} = packRows(entries, 100)
+  assert.deepEqual(positions(rects), [[0, 0], [50, 0], [0, 300], [0, 400]])
+})
+
+test("packRows stacks shorter tiles in a hole within the row", () => {
+  const {rects, rows} = packRows(boxes([66.6667, 400], [33.3333, 200], [33.3333, 200], [100, 100]), 100)
+  assert.deepEqual(positions(rects), [[0, 0], [66.6667, 0], [66.6667, 200], [0, 400]])
+  assert.deepEqual(rows.map(r => r.items), [[0, 1, 2], [3]])
+})
+
+test("packRows wraps a tile too tall for the hole", () => {
+  const {rects} = packRows(boxes([50, 300], [50, 100], [50, 250]), 100)
+  assert.deepEqual(positions(rects), [[0, 0], [50, 0], [0, 300]])
+})
+
+test("packRows closes the top line once a tile drops into a hole", () => {
+  const {rects, rows} = packRows(boxes([40, 100], [40, 300], [40, 100], [20, 50], [20, 100]), 100)
+  // The 20% tiles would fit on the top line but stay after the stacked tile in reading order.
+  assert.deepEqual(positions(rects), [[0, 0], [40, 0], [0, 100], [0, 200], [20, 200]])
+  assert.deepEqual(rows.map(r => r.items), [[0, 1, 2, 3, 4]])
+})
+
+test("packRows grows a row while later tiles still fit its top line", () => {
+  const {rects, rows} = packRows(boxes([40, 100], [40, 100], [20, 300], [40, 100]), 100)
+  assert.deepEqual(positions(rects), [[0, 0], [40, 0], [80, 0], [0, 100]])
+  assert.deepEqual(rows.map(r => [r.top, r.bottom]), [[0, 300]])
+})
+
+test("packRows works in pixels with fractional widths and clamps oversized tiles", () => {
+  const width = 1000.5
+  const third = width / 3
+  const {rects} = packRows(boxes([third, 100], [third, 100], [third, 100], [2000, 50]), width)
+  assert.deepEqual(rects.map(r => r.y), [0, 0, 0, 100])
+  assert.equal(rects[3].w, width)
+})
+
+test("packRows of nothing has no rows", () => {
+  assert.deepEqual(packRows([], 100), {rects: [], rows: [], height: 0})
+})
+
+test("generateLayout can derive wrapped layouts from row packing", () => {
+  const layout = tiles([50, 100], [50, 300], [100, 100], [50, 100])
+  const result = generate(layout, 500, {packing: "rows"})
+  assert.equal(result.changed, true)
+  assert.deepEqual(order(result.layout), [0, 1, 2, 3])
+})
+
+// Chart 0 (66%, tall), KPIs 1 and 2 stacked beside it, then 3 and 4 in a second row.
+const DROP = packRows(boxes([66, 400], [34, 200], [34, 200], [50, 100], [50, 100]), 100)
+
+test("dropTarget uses the horizontal midpoint of the tile under the pointer", () => {
+  const {rows, rects} = DROP
+  assert.deepEqual(dropTarget(rows, rects, 4, 10, 450), {ref: 3, side: "before"})
+  assert.deepEqual(dropTarget(rows, rects, 0, 40, 450), {ref: 3, side: "after"})
+  assert.deepEqual(dropTarget(rows, rects, 3, 90, 450), {ref: 4, side: "after"})
+})
+
+test("dropTarget targets stacked tiles inside a row band", () => {
+  const {rows, rects} = DROP
+  assert.deepEqual(dropTarget(rows, rects, 4, 70, 300), {ref: 2, side: "before"})
+  assert.deepEqual(dropTarget(rows, rects, 4, 95, 100), {ref: 1, side: "after"})
+})
+
+test("dropTarget places the tile at the end of a row right of its tiles", () => {
+  const {rows, rects} = packRows(boxes([30, 100], [30, 200], [100, 100]), 100)
+  assert.deepEqual(dropTarget(rows, rects, 2, 90, 50), {ref: 1, side: "after"})
+  assert.deepEqual(dropTarget(rows, rects, 0, 90, 150), {ref: 1, side: "after"})
+})
+
+test("dropTarget goes after the tile above a hole", () => {
+  const {rows, rects} = packRows(boxes([30, 100], [30, 300], [100, 100]), 100)
+  assert.deepEqual(dropTarget(rows, rects, 2, 15, 200), {ref: 0, side: "after"})
+})
+
+test("dropTarget below every row moves the tile to the end", () => {
+  const {rows, rects} = DROP
+  assert.deepEqual(dropTarget(rows, rects, 0, 10, 500), {end: true})
+  assert.deepEqual(dropTarget(rows, rects, 0, 10, 5000), {end: true})
+})
+
+test("dropTarget keeps a tile alone in its row where it is", () => {
+  const {rows, rects} = packRows(boxes([50, 100], [100, 100]), 100)
+  assert.equal(dropTarget(rows, rects, 1, 50, 150), null)
+})
+
+test("dropTarget over the dragged tile's own slot keeps its index", () => {
+  const {rows, rects} = packRows(boxes([30, 100], [30, 100], [30, 100]), 100)
+  const target = dropTarget(rows, rects, 1, 45, 50)
+  assert.deepEqual(target, {ref: 2, side: "before"})
+  assert.equal(moveIndex(1, target.ref, target.side), 1)
+})
+
+test("moveIndex converts before and after into Muuri move indices", () => {
+  assert.equal(moveIndex(0, 3, "before"), 2)
+  assert.equal(moveIndex(0, 3, "after"), 3)
+  assert.equal(moveIndex(4, 1, "before"), 1)
+  assert.equal(moveIndex(4, 1, "after"), 2)
 })
