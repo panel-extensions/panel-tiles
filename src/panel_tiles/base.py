@@ -30,6 +30,14 @@ def _check_tile_index(obj, index):
         raise ValueError(f"{type(obj).__name__}.selected must be None or an index into objects (0 to {len(obj.objects) - 1}), got {index}.")
 
 
+def _band_labels(breakpoints):
+    """Band labels in the order grid.js assigns them to `breakpoints`."""
+    if not breakpoints:
+        return []
+    names = ["xs", "sm", "md", "lg", "xl", "xxl"]
+    return [names[i] if i < len(names) else f"bp{i}" for i in range(len(breakpoints) + 1)]
+
+
 class TileGrid(JSComponent, ListLike):
     """
     A drag+resize grid wrapper around Muuri + interactjs.
@@ -99,6 +107,24 @@ class TileGrid(JSComponent, ListLike):
         bands, e.g. [768, 1200] yields three bands: xs (<768), sm (768-1200),
         md (>1200). When set, a toolbar appears in edit mode to preview each
         band and optionally author a custom layout for it.""",
+    )
+
+    preview_band = param.Selector(
+        default=None,
+        objects=[None],
+        doc="""
+        Label of the breakpoint band (e.g. "xs") the grid previews and edits,
+        or None to follow the container width. Edits made while the band
+        containing `reference_width` is previewed update `layout`, edits to
+        any other band update `responsive_layouts`. Clicking a toolbar chip
+        updates it.""",
+    )
+
+    show_breakpoint_toolbar = param.Boolean(
+        default=True,
+        doc="""
+        Whether to show the toolbar of breakpoint chips in edit mode. Hide
+        it to switch bands with `preview_band` from your own controls.""",
     )
 
     overflow_tolerance = param.Integer(
@@ -208,10 +234,14 @@ class TileGrid(JSComponent, ListLike):
         return cls._bundle
 
     def __init__(self, *args, **kwargs):
+        # Valid bands depend on `breakpoints`, which may be set in the same call.
+        preview_band = kwargs.pop("preview_band", None)
         super().__init__(*args, **kwargs)
         if self.selected is not None:
             _check_tile_index(self, self.selected)
         self.param.watch(self._track_selected, "objects")
+        self._update_bands()
+        self.preview_band = preview_band
         if self.local_save and not self.name:
             import warnings
 
@@ -227,6 +257,12 @@ class TileGrid(JSComponent, ListLike):
         old = event.old or []
         tile = old[self.selected] if self.selected < len(old) else None
         self.selected = next((i for i, obj in enumerate(event.new) if obj is tile), None)
+
+    @param.depends("breakpoints", watch=True)
+    def _update_bands(self):
+        self.param.preview_band.objects = [None, *_band_labels(self.breakpoints)]
+        if self.preview_band not in self.param.preview_band.objects:
+            self.preview_band = None
 
     def clear_local_save(self):
         """Clear the saved layout from the browser's localStorage."""

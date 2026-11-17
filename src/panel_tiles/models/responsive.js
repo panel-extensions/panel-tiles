@@ -325,6 +325,19 @@ export function widthPercent(px, containerWidth) {
 }
 
 /**
+ * Width to lay out and author breakpoint `band` ({min, max}) at when the
+ * container measures `width`: `width` itself while it lies inside the band,
+ * else `fallback` if that lies inside it, else the nearest width inside it.
+ */
+export function bandWidth(width, band, fallback = null) {
+  if (!band) { return width }
+  const inside = w => (band.min == null || w >= band.min) && (band.max == null || w < band.max)
+  if (inside(width)) { return width }
+  if (fallback != null && inside(fallback)) { return fallback }
+  return band.max != null && width >= band.max ? band.max - 1 : band.min
+}
+
+/**
  * Row geometry for widening `items[index]`, from Muuri's outer boxes (px) at
  * drag start. Earlier items to the right of a tile in its row fix where that
  * tile's row ends; later items in the resized tile's band are pushed along,

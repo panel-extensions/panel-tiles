@@ -2,8 +2,8 @@ import assert from "node:assert/strict"
 import {test} from "node:test"
 
 import {
-  FIT_SLACK_PCT, SWAP_THRESHOLD, allocateColumns, balancedPartition, dragProbe, dropTarget, generateLayout, moveIndex, packLayout, packRows,
-  planRowResize, resolveLayout, resolveRowResize, snapEdge, widthPercent,
+  FIT_SLACK_PCT, SWAP_THRESHOLD, allocateColumns, balancedPartition, bandWidth, dragProbe, dropTarget, generateLayout, moveIndex,
+  packLayout, packRows, planRowResize, resolveLayout, resolveRowResize, snapEdge, widthPercent,
 } from "../../src/panel_tiles/models/responsive.js"
 
 const REF = 1400
@@ -184,6 +184,20 @@ test("resolveLayout prefers overrides outside the base band", () => {
   assert.deepEqual(resolveLayout({...args, band: "md"}), {layout, source: "base"})
   assert.equal(resolveLayout({...args, band: "sm", width: 500}).source, "generated")
   assert.deepEqual(resolveLayout({...args, band: "sm", width: 500, mode: "scale"}), {layout, source: "base"})
+})
+
+test("bandWidth keeps a forced band's width inside the band", () => {
+  const xs = {label: "xs", max: 768}
+  const sm = {label: "sm", min: 768, max: 1200}
+  const md = {label: "md", min: 1200}
+  assert.equal(bandWidth(900, null, 1400), 900)
+  assert.equal(bandWidth(900, sm, 1400), 900)
+  // The base band falls back to the reference width, which lies inside it.
+  assert.equal(bandWidth(900, md, 1400), 1400)
+  assert.equal(bandWidth(900, md), 1200)
+  assert.equal(bandWidth(600, sm, 1400), 768)
+  assert.equal(bandWidth(1200, sm, 1400), 1199)
+  assert.equal(bandWidth(768, xs, 1000), 767)
 })
 
 test("widthPercent stays under the pixel width it was taken from", () => {
