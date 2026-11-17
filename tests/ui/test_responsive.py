@@ -724,3 +724,128 @@ def test_responsive_local_save_restores_reference_width(page):
         lambda: not page.evaluate("() => Object.keys(localStorage).some(k => k.includes('test-responsive-reference'))"),
         page,
     )
+
+
+def test_preview_band_desktop_on_narrow_grid_edits_layout(page):
+    layout = [
+        {"index": 0, "width": 50, "height": 100, "visible": True},
+        {"index": 1, "width": 50, "height": 100, "visible": True},
+    ]
+    grid = TileGrid(
+        objects=[Markdown("A"), Markdown("B")],
+        breakpoints=[768, 1200],
+        layout=layout,
+        reference_width=1400,
+        preview_band="md",
+        editable=True,
+        local_save=False,
+        width=900,
+        height=400,
+    )
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+    wait_until(lambda: items.nth(0).evaluate("el => el.style.height") == "100px", page)
+    expect(page.locator(".muuri-breakpoint-chip.active")).to_have_attribute("data-band", "md")
+    assert data_widths(items) == ["50", "50"]
+
+    drag_resize(page, items.nth(0), dx=0, dy=60)
+
+    wait_until(lambda: grid.layout[0]["height"] > 100, page)
+    assert grid.reference_width == 1400
+    assert grid.responsive_layouts == {}
+
+    # Forcing another band from Python routes edits to its custom layout.
+    grid.preview_band = "sm"
+    expect(page.locator(".muuri-breakpoint-chip.active")).to_have_attribute("data-band", "sm")
+    edited = grid.layout
+    drag_resize(page, items.nth(1), dx=0, dy=60)
+
+    wait_until(lambda: "sm" in grid.responsive_layouts, page)
+    assert grid.layout == edited
+    assert grid.reference_width == 1400
+
+
+def test_preview_band_without_reference_width_sets_it_inside_band(page):
+    grid = TileGrid(
+        objects=[Markdown("A"), Markdown("B")],
+        breakpoints=[768, 1200],
+        layout=[
+            {"index": 0, "width": 50, "height": 100, "visible": True},
+            {"index": 1, "width": 50, "height": 100, "visible": True},
+        ],
+        preview_band="md",
+        editable=True,
+        local_save=False,
+        width=900,
+        height=400,
+    )
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+    wait_until(lambda: items.nth(0).evaluate("el => el.style.height") == "100px", page)
+
+    drag_resize(page, items.nth(0), dx=0, dy=60)
+
+    wait_until(lambda: grid.reference_width is not None, page)
+    assert grid.reference_width >= 1200
+    assert grid.responsive_layouts == {}
+
+
+def test_preview_band_follows_chip_clicks(page):
+    grid = TileGrid(
+        objects=[Markdown("A"), Markdown("B")],
+        breakpoints=[768, 1200],
+        editable=True,
+        local_save=False,
+        width=900,
+        height=400,
+    )
+
+    serve_component(page, grid)
+
+    chips = page.locator(".muuri-breakpoint-chip")
+    expect(chips).to_have_count(4)
+
+    chips.first.click()
+    wait_until(lambda: grid.preview_band == "xs", page)
+    container = page.locator(".muuri-grid")
+    wait_until(lambda: container.evaluate("el => el.style.maxWidth") == "768px", page)
+
+    chips.nth(2).click()
+    wait_until(lambda: grid.preview_band == "md", page)
+
+    chips.last.click()
+    wait_until(lambda: grid.preview_band is None, page)
+    expect(container).not_to_have_class(re.compile("muuri-constrained"))
+
+
+def test_show_breakpoint_toolbar_hides_chips(page):
+    grid = TileGrid(
+        objects=[Markdown("A"), Markdown("B")],
+        breakpoints=[768, 1200],
+        show_breakpoint_toolbar=False,
+        editable=True,
+        local_save=False,
+        width=1400,
+        height=400,
+    )
+
+    serve_component(page, grid)
+
+    toolbar = page.locator(".muuri-breakpoint-toolbar")
+    expect(toolbar).to_have_count(1)
+    expect(toolbar).not_to_be_visible()
+
+    # The band can still be switched from Python.
+    grid.preview_band = "xs"
+    container = page.locator(".muuri-grid")
+    wait_until(lambda: container.evaluate("el => el.style.maxWidth") == "768px", page)
+
+    grid.show_breakpoint_toolbar = True
+    expect(toolbar).to_be_visible()
+    expect(toolbar.locator(".muuri-breakpoint-chip.active")).to_have_attribute("data-band", "xs")

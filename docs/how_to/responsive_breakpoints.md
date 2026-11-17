@@ -87,6 +87,25 @@ grid = TileGrid(
 
 `grid.reset_responsive_layout("xs")` removes one custom layout, and `grid.reset_responsive_layout()` removes all of them. Custom layouts for the base band are ignored, since that band always shows `layout`.
 
+## Choosing the Previewed Band from Python
+
+`preview_band` holds the label of the band being previewed and edited, or `None` for "AUTO". Clicking a chip updates it and setting it switches the preview, so an app can provide its own band switcher and hide the built-in chips with `show_breakpoint_toolbar=False`:
+
+```python
+import panel_material_ui as pmui
+
+band = pmui.RadioButtonGroup(options={"Phone": "xs", "Tablet": "sm", "Desktop": "md"}, value="md")
+
+grid = TileGrid(
+    objects=[...],
+    breakpoints=[768, 1200],
+    preview_band=band,
+    show_breakpoint_toolbar=False,
+)
+```
+
+The previewed band, not the grid's actual width, decides where edits go. Previewing the base band on a grid narrower than that band still edits `layout` and keeps `reference_width` inside the base band, so a sidebar squeezing the grid never turns desktop edits into a tablet layout.
+
 ## Persisting Responsive Layouts
 
 When `local_save=True`, the reference width and custom layouts are persisted to `localStorage` alongside `layout`, and `grid.clear_local_save()` removes all of them.

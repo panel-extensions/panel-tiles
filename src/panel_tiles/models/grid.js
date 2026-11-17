@@ -3,8 +3,8 @@ import Muuri from "https://esm.sh/muuri@0.9.5"
 import interact from "https://esm.sh/interactjs@1.10.27"
 
 import {
-  DEFAULT_REFERENCE_WIDTH, dragProbe, dropTarget, moveIndex, packRows, planRowResize, resolveLayout, resolveRowResize, snapEdge,
-  widthPercent,
+  DEFAULT_REFERENCE_WIDTH, bandWidth, dragProbe, dropTarget, moveIndex, packRows, planRowResize, resolveLayout, resolveRowResize,
+  snapEdge, widthPercent,
 } from "./responsive.js"
 
 function getLSKey(name) {
@@ -687,6 +687,13 @@ export async function render({model, el, view}) {
     return activeBreakpoint ?? getBandForWidth(model.breakpoints, width)?.label ?? null
   }
 
+  // A previewed band is laid out and edited at a width inside it, so an edit
+  // to the base band keeps `reference_width` there however narrow the grid is.
+  function layoutWidth() {
+    const band = getBreakpointBands(model.breakpoints).find(b => b.label === activeBreakpoint)
+    return bandWidth(container.clientWidth, band, referenceWidth())
+  }
+
   function itemElement(i) {
     return container.querySelector(`[data-id="${ids[i]}"]`)
   }
@@ -703,7 +710,7 @@ export async function render({model, el, view}) {
   }
 
   function resolveCurrent() {
-    const width = container.clientWidth
+    const width = layoutWidth()
     const band = viewBand(width)
     const resolved = resolveLayout({
       layout: model.layout,
@@ -804,7 +811,7 @@ export async function render({model, el, view}) {
 
   function commitEdit() {
     const layout = exportLayout(grid, ids)
-    const width = container.clientWidth
+    const width = layoutWidth()
     const band = viewBand(width)
     const editsBase = (
       !band || band === baseBand() ||
@@ -913,8 +920,9 @@ export async function render({model, el, view}) {
   function switchToBreakpoint(label) {
     const breakpoints = model.breakpoints
     if (!breakpoints || !breakpoints.length) { return }
-    activeBreakpoint = label
     const band = label === null ? null : getBreakpointBands(breakpoints).find(b => b.label === label)
+    label = band ? label : null
+    activeBreakpoint = label
     if (band?.max) {
       container.style.maxWidth = `${band.max}px`
     } else {
@@ -926,18 +934,30 @@ export async function render({model, el, view}) {
     if (toolbarUI) { toolbarUI.setActive(label) }
   }
 
+  function selectBand(label) {
+    model.preview_band = label
+    if (activeBreakpoint !== label) { switchToBreakpoint(label) }
+  }
+
   if (model.breakpoints?.length) {
-    toolbarUI = createBreakpointToolbar(model.breakpoints, container, switchToBreakpoint, resetOverride)
+    toolbarUI = createBreakpointToolbar(model.breakpoints, container, selectBand, resetOverride)
     if (toolbarUI) {
       el.insertBefore(toolbarUI.toolbar, container)
       toolbarUI.setActive(null)
       updateToolbar()
-      if (!model.editable) { toolbarUI.toolbar.style.display = "none" }
-      model.on("editable", () => {
-        toolbarUI.toolbar.style.display = model.editable ? "" : "none"
-      })
+      const showToolbar = () => {
+        toolbarUI.toolbar.style.display = model.editable && model.show_breakpoint_toolbar ? "" : "none"
+      }
+      showToolbar()
+      model.on("editable", showToolbar)
+      model.on("show_breakpoint_toolbar", showToolbar)
     }
   }
+  if (model.preview_band != null) { switchToBreakpoint(model.preview_band) }
+  model.on("preview_band", () => {
+    const label = model.preview_band ?? null
+    if (label !== activeBreakpoint) { switchToBreakpoint(label) }
+  })
 
   function create_item(child) {
     const item = document.createElement("div")

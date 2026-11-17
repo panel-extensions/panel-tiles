@@ -81,6 +81,52 @@ def test_grid_responsive_defaults():
     assert grid.responsive_layouts == {}
 
 
+def test_preview_band_defaults_to_following_width():
+    grid = TileGrid(objects=[Markdown("A")], breakpoints=[768, 1200])
+
+    assert grid.preview_band is None
+    assert grid.show_breakpoint_toolbar is True
+    assert grid.param.preview_band.objects == [None, "xs", "sm", "md"]
+
+
+def test_preview_band_accepts_band_labels():
+    grid = TileGrid(objects=[Markdown("A")], breakpoints=[1200, 768], preview_band="md")
+
+    assert grid.preview_band == "md"
+    grid.preview_band = "xs"
+    assert grid.preview_band == "xs"
+
+
+def test_preview_band_labels_beyond_named_bands():
+    grid = TileGrid(objects=[Markdown("A")], breakpoints=list(range(100, 800, 100)))
+
+    assert grid.param.preview_band.objects[1:] == ["xs", "sm", "md", "lg", "xl", "xxl", "bp6", "bp7"]
+
+
+def test_preview_band_rejects_unknown_band():
+    with pytest.raises(ValueError):
+        TileGrid(objects=[Markdown("A")], preview_band="md")
+
+    grid = TileGrid(objects=[Markdown("A")], breakpoints=[768])
+    with pytest.raises(ValueError):
+        grid.preview_band = "md"
+
+
+def test_preview_band_resets_when_breakpoints_drop_it():
+    grid = TileGrid(objects=[Markdown("A")], breakpoints=[768, 1200], preview_band="md")
+
+    grid.breakpoints = [768]
+
+    assert grid.preview_band is None
+    assert grid.param.preview_band.objects == [None, "xs", "sm"]
+
+
+def test_preview_band_options_are_per_instance():
+    TileGrid(objects=[Markdown("A")], breakpoints=[768, 1200])
+
+    assert TileGrid(objects=[Markdown("A")]).param.preview_band.objects == [None]
+
+
 XS_LAYOUT = [{"index": 0, "width": 100, "height": 80, "visible": True}]
 
 
