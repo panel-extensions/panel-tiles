@@ -587,15 +587,24 @@ export async function render({model, el, view}) {
 
   // Direction of the drag per axis, only flipped after a clear move back so jitter can't swap the leading edge.
   const DIRECTION_SLACK = 6
+  const MINOR_AXIS = 0.5
   let heading = null
 
+  function startHeading(event) {
+    return {x: 0, y: 0, ax: event.clientX, ay: event.clientY, sx: event.clientX, sy: event.clientY}
+  }
+
+  // An axis the drag barely moves along doesn't lead, so a tile dragged up
+  // and slightly right is placed by the pointer, not by its far right edge.
   function updateHeading(event) {
-    if (!heading) { heading = {x: 0, y: 0, ax: event.clientX, ay: event.clientY} }
+    if (!heading) { heading = startHeading(event) }
     const dx = event.clientX - heading.ax
     const dy = event.clientY - heading.ay
     if (Math.abs(dx) > DIRECTION_SLACK) { heading.x = Math.sign(dx); heading.ax = event.clientX }
     if (Math.abs(dy) > DIRECTION_SLACK) { heading.y = Math.sign(dy); heading.ay = event.clientY }
-    return heading
+    const tx = Math.abs(event.clientX - heading.sx)
+    const ty = Math.abs(event.clientY - heading.sy)
+    return {x: tx < ty * MINOR_AXIS ? 0 : heading.x, y: ty < tx * MINOR_AXIS ? 0 : heading.y}
   }
 
   function rowSortPredicate(item, event) {
@@ -608,10 +617,11 @@ export async function render({model, el, view}) {
     const rect = {x: el.left - left, y: el.top - top, w: el.width, h: el.height}
     const pointer = {x: event.clientX - left, y: event.clientY - top}
     const dir = updateHeading(event)
-    const {x, y} = dragProbe(packed.rows, rect, pointer, dir)
+    const dragged = packed.items.indexOf(item)
+    const {x, y, lead} = dragProbe(packed.rows, rect, pointer, dir, {rects: packed.rects, dragged, width: gridWidth(grid)})
     // Below every tile is judged by the pointer, so a tall tile in the last row doesn't jump to the end.
     const below = packed.rows.length && pointer.y >= packed.rows[packed.rows.length - 1].bottom
-    const target = dropTarget(packed.rows, packed.rects, packed.items.indexOf(item), x, below ? pointer.y : y, dir.x)
+    const target = dropTarget(packed.rows, packed.rects, dragged, x, below ? pointer.y : y, lead)
     if (!target) { return null }
     const all = grid.getItems()
     const current = all.indexOf(item)
@@ -780,7 +790,8 @@ export async function render({model, el, view}) {
     window.removeEventListener("resize", onWindowResize, true)
     observer.disconnect()
   })
-  grid.on("dragStart", () => { heading = null })
+  // Anchored at the press, since a fast drag may reach its target by the first sort check.
+  grid.on("dragStart", (_, event) => { heading = event ? startHeading(event) : null })
   model.on("min_col_width", () => { reclampAll(); refreshLayout() })
   model.on("layout_mode", () => {
     grid._settings.dragSortHeuristics.minBounceBackAngle = rowsMode() ? 0 : 1

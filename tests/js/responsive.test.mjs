@@ -467,17 +467,29 @@ const PROBE = packRows(boxes([75, 300], [25, 100], [50, 100], [50, 100]), 100)
 
 test("dragProbe follows the pointer until the drag has a direction", () => {
   const rect = {x: 5, y: 10, w: 75, h: 300}
-  assert.deepEqual(dragProbe(PROBE.rows, rect, {x: 6, y: 11}, {x: 0, y: 0}), {x: 6, y: 11})
+  assert.deepEqual(dragProbe(PROBE.rows, rect, {x: 6, y: 11}, {x: 0, y: 0}), {x: 6, y: 11, lead: 0})
 })
 
 test("dragProbe uses the edge leading a horizontal drag", () => {
   const rect = {x: 5, y: 0, w: 75, h: 300}
-  assert.deepEqual(dragProbe(PROBE.rows, rect, {x: 6, y: 1}, {x: 1, y: 0}), {x: 79, y: 1})
-  assert.deepEqual(dragProbe(PROBE.rows, rect, {x: 6, y: 1}, {x: -1, y: 0}), {x: 6, y: 1})
+  assert.deepEqual(dragProbe(PROBE.rows, rect, {x: 6, y: 1}, {x: 1, y: 0}), {x: 79, y: 1, lead: 1})
+  assert.deepEqual(dragProbe(PROBE.rows, rect, {x: 6, y: 1}, {x: -1, y: 0}), {x: 6, y: 1, lead: -1})
   // Ten units to the right, the wide tile's edge reaches past the narrow tile's threshold.
-  const {x, y} = dragProbe(PROBE.rows, {...rect, x: 10}, {x: 11, y: 1}, {x: 1, y: 0})
+  const {x, y, lead} = dragProbe(PROBE.rows, {...rect, x: 10}, {x: 11, y: 1}, {x: 1, y: 0}, {rects: PROBE.rects, dragged: 0, width: 100})
   assert.ok(x > 75 + 25 * SWAP_THRESHOLD)
-  assert.deepEqual(dropTarget(PROBE.rows, PROBE.rects, 0, x, y, 1), {ref: 1, side: "after"})
+  assert.deepEqual(dropTarget(PROBE.rows, PROBE.rects, 0, x, y, lead), {ref: 1, side: "after"})
+})
+
+test("dragProbe places a tile that can't share a row by the pointer", () => {
+  // A full-width tile in the second row dragged up and right: its right edge is beyond the first row.
+  const {rows, rects} = packRows(boxes([25, 100], [25, 100], [25, 100], [100, 100]), 100)
+  const rect = {x: 10, y: 20, w: 100, h: 100}
+  const probe = dragProbe(rows, rect, {x: 11, y: 21}, {x: 1, y: -1}, {rects, dragged: 3, width: 100})
+  assert.deepEqual(probe, {x: 11, y: 21, lead: 0})
+  assert.deepEqual(dropTarget(rows, rects, 3, probe.x, probe.y, probe.lead), {ref: 0, side: "before"})
+  // A wide tile that still fits beside the narrowest one keeps its leading edge.
+  const wide = packRows(boxes([75, 100], [25, 100]), 100)
+  assert.equal(dragProbe(wide.rows, {x: 5, y: 0, w: 75, h: 100}, {x: 6, y: 1}, {x: 1, y: 0}, {rects: wide.rects, dragged: 0, width: 100}).lead, 1)
 })
 
 test("dragProbe moves a tall tile into the next row once its bottom reaches into it", () => {
@@ -485,7 +497,7 @@ test("dragProbe moves a tall tile into the next row once its bottom reaches into
   const short = {x: 0, y: reach - 301, w: 75, h: 300}
   assert.equal(dragProbe(PROBE.rows, short, {x: 1, y: 1}, {x: 0, y: 1}).y, 1)
   const past = {x: 0, y: reach - 299, w: 75, h: 300}
-  assert.deepEqual(dragProbe(PROBE.rows, past, {x: 1, y: 2}, {x: 0, y: 1}), {x: 1, y: 301})
+  assert.deepEqual(dragProbe(PROBE.rows, past, {x: 1, y: 2}, {x: 0, y: 1}), {x: 1, y: 301, lead: 0})
 })
 
 test("dragProbe moves a tile up once its top reaches into the previous row", () => {
