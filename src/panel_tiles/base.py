@@ -16,6 +16,20 @@ DIST_PATH = BASE_PATH / "dist"
 extension_dirs["panel-tiles"] = DIST_PATH
 
 
+class _TileIndex(param.Integer):
+    """An index into the owner's `objects`, rejected when out of range."""
+
+    def __set__(self, obj, val):
+        if val is not None and obj is not None and not isinstance(obj, type) and obj._param__private.initialized:
+            _check_tile_index(obj, val)
+        super().__set__(obj, val)
+
+
+def _check_tile_index(obj, index):
+    if not 0 <= index < len(obj.objects):
+        raise ValueError(f"{type(obj).__name__}.selected must be None or an index into objects (0 to {len(obj.objects) - 1}), got {index}.")
+
+
 class TileGrid(JSComponent, ListLike):
     """
     A drag+resize grid wrapper around Muuri + interactjs.
@@ -39,7 +53,44 @@ class TileGrid(JSComponent, ListLike):
 
     elevation = param.Integer(default=3, bounds=(0, 20))
 
-    fill_gaps = param.Boolean(default=True)
+    fill_gaps = param.Boolean(
+        default=True,
+        doc="""
+        Whether later tiles may fill gaps left anywhere above them when
+        `layout_mode="masonry"`. Has no effect in "rows" mode.""",
+    )
+
+    layout_mode = param.Selector(
+        default="masonry",
+        objects=["masonry", "rows"],
+        doc="""
+        How tiles are packed. "masonry" places each tile in the top-left-most
+        free slot, so later tiles backfill gaps anywhere in the grid (see
+        `fill_gaps`). "rows" fills rows left to right in order: each row is as
+        tall as its tallest tile and the next row starts below it. Shorter
+        tiles may stack in the space beside a taller tile within the same row
+        but never move into an earlier row, and dragging inserts a tile
+        before or after the tile under the pointer.""",
+    )
+
+    columns = param.Integer(
+        default=None,
+        bounds=(1, None),
+        doc="""
+        Number of columns resized tile edges snap to, e.g. 12. Widths are
+        still stored as percentages. When unset, tiles only snap to the
+        edges of other tiles and the end of their row.""",
+    )
+
+    row_height = param.Integer(
+        default=None,
+        bounds=(1, None),
+        doc="""
+        Pixel step resized tile heights snap to, including the tile's
+        margins, so a tile two steps tall lines up with two stacked tiles one
+        step tall. When unset, heights only snap to the edges of other
+        tiles.""",
+    )
 
     breakpoints = param.List(
         default=[],
@@ -114,6 +165,16 @@ class TileGrid(JSComponent, ListLike):
         wraps onto a new line when `responsive_mode="wrap"`.""",
     )
 
+    selected = _TileIndex(
+        default=None,
+        allow_None=True,
+        doc="""
+        Index into `objects` of the tile last clicked, focused, dragged or
+        resized, or None. Setting it highlights that tile. It follows its
+        tile when tiles are added or removed before it and resets to None
+        when its tile is removed or closed.""",
+    )
+
     name = param.String(default="")
 
     objects = Children(doc="Items in the grid.")
@@ -148,6 +209,9 @@ class TileGrid(JSComponent, ListLike):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.selected is not None:
+            _check_tile_index(self, self.selected)
+        self.param.watch(self._track_selected, "objects")
         if self.local_save and not self.name:
             import warnings
 
@@ -156,6 +220,13 @@ class TileGrid(JSComponent, ListLike):
                 UserWarning,
                 stacklevel=2,
             )
+
+    def _track_selected(self, event):
+        if self.selected is None:
+            return
+        old = event.old or []
+        tile = old[self.selected] if self.selected < len(old) else None
+        self.selected = next((i for i, obj in enumerate(event.new) if obj is tile), None)
 
     def clear_local_save(self):
         """Clear the saved layout from the browser's localStorage."""

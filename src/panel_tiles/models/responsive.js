@@ -10,6 +10,8 @@ const DEFAULT_HEIGHT = 200
 // the next free slot when it overflows by more than 0.001px, so a width taken
 // from a resize stays this far under the edge it was dragged or snapped to.
 export const FIT_SLACK_PCT = 0.01
+// Fraction of a tile a drag must reach into, from the side it enters, to pass it.
+export const SWAP_THRESHOLD = 0.25
 
 function overlaps(a, b) {
   return (
@@ -41,20 +43,133 @@ export function packLayout(entries) {
     const slot = slots.find(s => w <= s.w + PCT_EPS && h <= s.h + PX_EPS)
     const rect = {key: entry.key, x: slot.x, y: slot.y, w, h}
     rects.push(rect)
-    const next = []
-    for (const s of slots) {
-      if (!overlaps(s, rect)) { next.push(s); continue }
-      if (rect.x > s.x) { next.push({x: s.x, y: s.y, w: rect.x - s.x, h: s.h}) }
-      if (rect.x + rect.w < s.x + s.w) { next.push({x: rect.x + rect.w, y: s.y, w: s.x + s.w - rect.x - rect.w, h: s.h}) }
-      if (rect.y > s.y) { next.push({x: s.x, y: s.y, w: s.w, h: rect.y - s.y}) }
-      if (rect.y + rect.h < s.y + s.h) { next.push({x: s.x, y: rect.y + rect.h, w: s.w, h: s.y + s.h - rect.y - rect.h}) }
-    }
-    slots = next
-      .filter(s => s.w > PCT_EPS && s.h > PX_EPS)
-      .filter((s, i, all) => !all.some((o, j) => j !== i && contains(o, s) && (!contains(s, o) || j < i)))
-      .sort((a, b) => a.y - b.y || a.x - b.x)
+    slots = carve(slots, rect)
   }
   return rects
+}
+
+/** Free rectangles left of `slots` once `rect` is occupied, maximal and sorted top-left. */
+function carve(slots, rect) {
+  const next = []
+  for (const s of slots) {
+    if (!overlaps(s, rect)) { next.push(s); continue }
+    if (rect.x > s.x) { next.push({x: s.x, y: s.y, w: rect.x - s.x, h: s.h}) }
+    if (rect.x + rect.w < s.x + s.w) { next.push({x: rect.x + rect.w, y: s.y, w: s.x + s.w - rect.x - rect.w, h: s.h}) }
+    if (rect.y > s.y) { next.push({x: s.x, y: s.y, w: s.w, h: rect.y - s.y}) }
+    if (rect.y + rect.h < s.y + s.h) { next.push({x: s.x, y: rect.y + rect.h, w: s.w, h: s.y + s.h - rect.y - rect.h}) }
+  }
+  return next
+    .filter(s => s.w > PCT_EPS && s.h > PX_EPS)
+    .filter((s, i, all) => !all.some((o, j) => j !== i && contains(o, s) && (!contains(s, o) || j < i)))
+    .sort((a, b) => a.y - b.y || a.x - b.x)
+}
+
+/**
+ * Row-banded packing. Tiles fill a row left to right in order and the row is
+ * as tall as its tallest tile; the next row starts below it. Once a tile no
+ * longer fits on the row's top line, it and the tiles after it may drop into
+ * holes lower down in the same row (e.g. a second card stacked under a first
+ * one beside a tall chart), but never into an earlier row, and the top line
+ * takes no further tiles so the reading order stays left to right.
+ *
+ * `entries` are outer {width, height} in any unit matching `width`. Returns
+ * a rect per entry and the rows, each with its band and the entry indices it
+ * holds in order.
+ */
+export function packRows(entries, width) {
+  const rects = []
+  const rows = []
+  let row = null
+  const open = top => {
+    row = {top, bottom: top, cursor: 0, closed: false, items: []}
+    rows.push(row)
+  }
+  open(0)
+  entries.forEach((entry, i) => {
+    const w = Math.min(width, Math.max(entry.width, 0))
+    const h = Math.max(entry.height, 0)
+    let spot = rowSpot(row, rects, w, h, width)
+    if (!spot) {
+      open(row.bottom)
+      spot = {x: 0, y: row.top}
+    }
+    rects[i] = {x: spot.x, y: spot.y, w, h}
+    if (spot.y <= row.top + PX_EPS) { row.cursor = spot.x + w } else { row.closed = true }
+    row.bottom = Math.max(row.bottom, spot.y + h)
+    row.items.push(i)
+  })
+  const bands = rows.filter(r => r.items.length).map(({top, bottom, items}) => ({top, bottom, items}))
+  return {rects, rows: bands, height: bands.length ? bands[bands.length - 1].bottom : 0}
+}
+
+function rowSpot(row, rects, w, h, width) {
+  if (!row.items.length || (!row.closed && row.cursor + w <= width + PCT_EPS)) { return {x: row.cursor, y: row.top} }
+  let free = [{x: 0, y: row.top, w: width, h: row.bottom - row.top}]
+  for (const i of row.items) { free = carve(free, rects[i]) }
+  return free.find(s => s.y > row.top + PX_EPS && w <= s.w + PCT_EPS && h <= s.h + PX_EPS) ?? null
+}
+
+/**
+ * Where a tile dragged with the pointer at (`x`, `y`) should go, given the
+ * `rows` and `rects` of `packRows` and the index of the `dragged` entry.
+ * The row under the pointer is the target: over a tile, its horizontal
+ * midpoint decides before or after it; in a hole the pointer goes after the
+ * tile above it; right of the row's tiles is the end of that row. Below
+ * every row is the end of the grid. With a horizontal `lead` (-1 or 1) the
+ * pointer only has to reach `SWAP_THRESHOLD` into a tile, from the side it
+ * enters, to pass it. Returns {ref, side} relative to another entry,
+ * {end: true}, or null to stay put.
+ */
+export function dropTarget(rows, rects, dragged, x, y, lead = 0) {
+  if (!rows.length || y >= rows[rows.length - 1].bottom) { return {end: true} }
+  const row = rows.find(r => y < r.bottom)
+  const items = row.items.filter(i => i !== dragged)
+  if (!items.length) { return null }
+  const spansX = r => x >= r.x && x < r.x + r.w
+  const spansY = r => y >= r.y && y < r.y + r.h
+  const hit = items.find(i => spansX(rects[i]) && spansY(rects[i]))
+  if (hit !== undefined) {
+    const r = rects[hit]
+    const split = lead > 0 ? SWAP_THRESHOLD : lead < 0 ? 1 - SWAP_THRESHOLD : 0.5
+    return {ref: hit, side: x < r.x + r.w * split ? "before" : "after"}
+  }
+  const above = items.filter(i => spansX(rects[i]) && rects[i].y <= y)
+  if (above.length) { return {ref: above[above.length - 1], side: "after"} }
+  let line = items.filter(i => spansY(rects[i]))
+  if (!line.length) { line = items.filter(i => rects[i].y <= row.top + PX_EPS) }
+  const next = line
+    .filter(i => rects[i].x + rects[i].w / 2 > x)
+    .sort((a, b) => rects[a].x - rects[b].x)[0]
+  if (next !== undefined) { return {ref: next, side: "before"} }
+  return {ref: items[items.length - 1], side: "after"}
+}
+
+/**
+ * The point `dropTarget` should test for a tile dragged by `pointer` whose
+ * current box is `rect`, moving in direction `dir` ({x, y} of -1, 0 or 1).
+ * The pointer sits on the drag handle in the tile's top-left corner, so a
+ * large tile would have to travel its own size before the pointer reaches a
+ * neighbour. The edge leading the movement is used instead: horizontally
+ * that edge itself, vertically the furthest row it reaches `SWAP_THRESHOLD`
+ * of the way into.
+ */
+export function dragProbe(rows, rect, pointer, dir) {
+  let x = pointer.x
+  if (dir.x > 0) { x = rect.x + rect.w - 1 } else if (dir.x < 0) { x = rect.x + 1 }
+  let row = null
+  if (dir.y > 0) {
+    row = rows.filter(r => r.top + (r.bottom - r.top) * SWAP_THRESHOLD <= rect.y + rect.h).pop() ?? null
+  } else if (dir.y < 0) {
+    row = rows.find(r => r.bottom - (r.bottom - r.top) * SWAP_THRESHOLD >= rect.y) ?? null
+  }
+  if (!row || (pointer.y >= row.top && pointer.y < row.bottom)) { return {x, y: pointer.y} }
+  return {x, y: row.top + 1}
+}
+
+/** Muuri move index for an item at `current` going `side` of the item at `ref`. */
+export function moveIndex(current, ref, side) {
+  if (side === "before") { return current < ref ? ref - 1 : ref }
+  return current < ref ? ref : ref + 1
 }
 
 function groupByInterval(items, lo, hi, eps) {
@@ -305,10 +420,11 @@ function roundPct(value) {
  * `referenceWidth`, wrapping tiles that would shrink below
  * max(minWidths[i], shrink * authored px) onto new lines.
  *
- * `heights[i]` supplies measured heights for entries without an explicit one.
+ * `heights[i]` supplies measured heights for entries without an explicit one,
+ * and `packing` names the layout ("masonry" or "rows") that places the tiles.
  * Returns the input layout itself when nothing needs to change.
  */
-export function generateLayout(layout, {width, referenceWidth, shrink = 0.5, minWidths = [], heights = []}) {
+export function generateLayout(layout, {width, referenceWidth, shrink = 0.5, minWidths = [], heights = [], packing = "masonry"}) {
   if (!layout?.length || !(width > 0) || width >= referenceWidth) {
     return {layout, changed: false}
   }
@@ -319,9 +435,12 @@ export function generateLayout(layout, {width, referenceWidth, shrink = 0.5, min
   if (!visible.length) { return {layout, changed: false} }
   visible.sort((a, b) => (a.spec.index ?? a.i) - (b.spec.index ?? b.i) || a.i - b.i)
 
-  const rects = packLayout(visible.map(({spec, i}) => ({
+  const entries = visible.map(({spec, i}) => ({
     key: i, width: spec.width ?? 100, height: spec.height ?? heights[i] ?? DEFAULT_HEIGHT,
-  })))
+  }))
+  const rects = packing === "rows"
+    ? packRows(entries, 100).rects.map((rect, n) => ({...rect, key: entries[n].key}))
+    : packLayout(entries)
   const items = rects.map((rect, order) => {
     const c0 = Math.min(COLUMNS - 1, Math.round(rect.x * COLUMNS / 100))
     const c1 = Math.max(c0 + 1, Math.min(COLUMNS, Math.round((rect.x + rect.w) * COLUMNS / 100)))
@@ -360,11 +479,11 @@ export function generateLayout(layout, {width, referenceWidth, shrink = 0.5, min
  */
 export function resolveLayout({
   layout, overrides = {}, band = null, baseBand = null, width, referenceWidth,
-  mode = "wrap", shrink = 0.5, minWidths = [], heights = [],
+  mode = "wrap", shrink = 0.5, minWidths = [], heights = [], packing = "masonry",
 }) {
   const override = band && band !== baseBand ? overrides?.[band] : null
   if (override?.length) { return {layout: override, source: "custom"} }
   if (mode === "scale") { return {layout, source: "base"} }
-  const generated = generateLayout(layout, {width, referenceWidth, shrink, minWidths, heights})
+  const generated = generateLayout(layout, {width, referenceWidth, shrink, minWidths, heights, packing})
   return {layout: generated.layout, source: generated.changed ? "generated" : "base"}
 }

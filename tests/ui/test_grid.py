@@ -533,10 +533,11 @@ SNAP_LAYOUT = [
 ]
 
 
-def serve_snap_grid(page, padding="0.6px"):
+def serve_snap_grid(page, padding="0.6px", layout_mode="masonry"):
     grid = TileGrid(
         objects=[Markdown(name) for name in ("Activity", "Map", "Tuning", "Weights")],
         layout=SNAP_LAYOUT,
+        layout_mode=layout_mode,
         card=False,
         local_save=False,
         sizing_mode="stretch_width",
@@ -572,8 +573,9 @@ def drag_handle(page, item, dx, dy):
     page.mouse.up()
 
 
-def test_grid_resize_snapped_to_neighbour_edge_stays_on_row(page):
-    grid, items = serve_snap_grid(page)
+@pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
+def test_grid_resize_snapped_to_neighbour_edge_stays_on_row(page, layout_mode):
+    grid, items = serve_snap_grid(page, layout_mode=layout_mode)
     container_width = page.locator(".muuri-grid").evaluate("el => el.getBoundingClientRect().width")
     assert container_width != round(container_width)
 
@@ -589,8 +591,9 @@ def test_grid_resize_snapped_to_neighbour_edge_stays_on_row(page):
     assert grid.layout[2]["width"] + grid.layout[3]["width"] < SNAP_LAYOUT[0]["width"]
 
 
-def test_grid_resize_snaps_flush_to_container_edge(page):
-    grid, items = serve_snap_grid(page)
+@pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
+def test_grid_resize_snaps_flush_to_container_edge(page, layout_mode):
+    grid, items = serve_snap_grid(page, layout_mode=layout_mode)
     grid.layout = [{**spec, "height": 120} for spec in SNAP_LAYOUT]
     wait_until(lambda: items.nth(1).evaluate("el => el.style.height") == "120px", page)
 
@@ -604,8 +607,9 @@ def test_grid_resize_snaps_flush_to_container_edge(page):
     assert abs(after["x"] + after["width"] - map_right) < 0.5
 
 
-def test_grid_height_only_resize_keeps_width(page):
-    grid, items = serve_snap_grid(page, padding="0px")
+@pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
+def test_grid_height_only_resize_keeps_width(page, layout_mode):
+    grid, items = serve_snap_grid(page, padding="0px", layout_mode=layout_mode)
     before = settled_box(page, items.nth(2))
 
     drag_handle(page, items.nth(2), 0, 80)
@@ -652,8 +656,9 @@ def drag_past_row_end(page, items, overshoot):
     return tuning
 
 
-def test_grid_resize_slightly_past_row_end_fills_it(page):
-    grid, items = serve_row_grid(page)
+@pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
+def test_grid_resize_slightly_past_row_end_fills_it(page, layout_mode):
+    grid, items = serve_row_grid(page, layout_mode=layout_mode)
     tuning = drag_past_row_end(page, items, 30)
 
     grid_el = page.locator(".muuri-grid")
@@ -673,8 +678,9 @@ def test_grid_resize_slightly_past_row_end_fills_it(page):
     assert 44.9 < grid.layout[1]["width"] < 45
 
 
-def test_grid_resize_well_past_row_end_reflows(page):
-    grid, items = serve_row_grid(page)
+@pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
+def test_grid_resize_well_past_row_end_reflows(page, layout_mode):
+    grid, items = serve_row_grid(page, layout_mode=layout_mode)
     tuning = drag_past_row_end(page, items, 160)
 
     expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
@@ -690,8 +696,9 @@ def test_grid_resize_well_past_row_end_reflows(page):
     assert settled_box(page, items.nth(2))["y"] > tuning["y"] + 100
 
 
-def test_grid_resize_without_overflow_tolerance_reflows_at_row_end(page):
-    grid, items = serve_row_grid(page, overflow_tolerance=0)
+@pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
+def test_grid_resize_without_overflow_tolerance_reflows_at_row_end(page, layout_mode):
+    grid, items = serve_row_grid(page, overflow_tolerance=0, layout_mode=layout_mode)
     drag_past_row_end(page, items, 30)
 
     expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
@@ -738,11 +745,12 @@ STACKED_LAYOUT = [
 ]
 
 
-def serve_stacked_grid(page):
+def serve_stacked_grid(page, layout_mode="masonry"):
     """A tall Map with Weights and Tuning beside it and Series below Weights."""
     grid = TileGrid(
         objects=[Markdown(name) for name in ("Map", "Weights", "Tuning", "Series")],
         layout=STACKED_LAYOUT,
+        layout_mode=layout_mode,
         local_save=False,
         width=1000,
     )
@@ -764,8 +772,9 @@ def drag_stacked_past_row_end(page, items, overshoot):
     page.mouse.move(x + spare + overshoot, y, steps=10)
 
 
-def test_grid_resize_beside_stacked_tiles_fills_row(page):
-    grid, items = serve_stacked_grid(page)
+@pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
+def test_grid_resize_beside_stacked_tiles_fills_row(page, layout_mode):
+    grid, items = serve_stacked_grid(page, layout_mode=layout_mode)
     before = [settled_box(page, items.nth(i)) for i in range(4)]
     drag_stacked_past_row_end(page, items, 30)
 
@@ -781,8 +790,9 @@ def test_grid_resize_beside_stacked_tiles_fills_row(page):
     assert after[3]["x"] == after[1]["x"]
 
 
-def test_grid_resize_beside_stacked_tiles_shows_overflow(page):
-    grid, items = serve_stacked_grid(page)
+@pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
+def test_grid_resize_beside_stacked_tiles_shows_overflow(page, layout_mode):
+    grid, items = serve_stacked_grid(page, layout_mode=layout_mode)
     drag_stacked_past_row_end(page, items, 160)
 
     expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
@@ -965,3 +975,21 @@ def test_grid_reflows_when_container_width_changes(page, transition):
         grid_box = grid_el.bounding_box()
         free = grid_box["x"] + grid_box["width"] - (boxes[2]["x"] + boxes[2]["width"])
         assert 0 <= free < 0.01 * grid_box["width"] + 15, f"tiles leave {free}px free at width {grid_box['width']}"
+
+
+def test_grid_close_hide_commits_hidden_tile(page):
+    grid = TileGrid(
+        objects=[Markdown(f"Tile {i}") for i in range(3)],
+        layout=[{"index": i, "width": 30, "height": 120, "visible": True} for i in range(3)],
+        close_action="hide",
+        local_save=False,
+        width=1000,
+    )
+    serve_component(page, grid)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(3)
+    settled_box(page, items.nth(2))
+
+    items.nth(1).locator(".muuri-handle.close").click()
+
+    wait_until(lambda: [spec["visible"] for spec in grid.layout] == [True, False, True], page)
