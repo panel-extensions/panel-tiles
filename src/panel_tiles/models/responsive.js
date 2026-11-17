@@ -151,19 +151,28 @@ export function dropTarget(rows, rects, dragged, x, y, lead = 0) {
  * large tile would have to travel its own size before the pointer reaches a
  * neighbour. The edge leading the movement is used instead: horizontally
  * that edge itself, vertically the furthest row it reaches `SWAP_THRESHOLD`
- * of the way into.
+ * of the way into. Given the `rects` of `packRows` and the row `width`, a
+ * `dragged` tile too wide to share a row with any other tile is placed by
+ * the pointer horizontally. Returns the point and the horizontal `lead` to
+ * pass on to `dropTarget`.
  */
-export function dragProbe(rows, rect, pointer, dir) {
+export function dragProbe(rows, rect, pointer, dir, {rects = null, dragged = -1, width = Infinity} = {}) {
+  let lead = dir.x
+  // A tile that can't share a row with any other tile is placed by the pointer alone.
+  if (rects && dragged >= 0) {
+    const narrowest = Math.min(...rects.filter((_, i) => i !== dragged).map(r => r.w))
+    if (rects[dragged].w + narrowest > width + PX_EPS) { lead = 0 }
+  }
   let x = pointer.x
-  if (dir.x > 0) { x = rect.x + rect.w - 1 } else if (dir.x < 0) { x = rect.x + 1 }
+  if (lead > 0) { x = rect.x + rect.w - 1 } else if (lead < 0) { x = rect.x + 1 }
   let row = null
   if (dir.y > 0) {
     row = rows.filter(r => r.top + (r.bottom - r.top) * SWAP_THRESHOLD <= rect.y + rect.h).pop() ?? null
   } else if (dir.y < 0) {
     row = rows.find(r => r.bottom - (r.bottom - r.top) * SWAP_THRESHOLD >= rect.y) ?? null
   }
-  if (!row || (pointer.y >= row.top && pointer.y < row.bottom)) { return {x, y: pointer.y} }
-  return {x, y: row.top + 1}
+  const y = !row || (pointer.y >= row.top && pointer.y < row.bottom) ? pointer.y : row.top + 1
+  return {x, y, lead}
 }
 
 /** Muuri move index for an item at `current` going `side` of the item at `ref`. */
