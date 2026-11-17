@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import {test} from "node:test"
 
 import {
-  FIT_SLACK_PCT, allocateColumns, balancedPartition, dropTarget, generateLayout, moveIndex, packLayout, packRows,
+  FIT_SLACK_PCT, SWAP_THRESHOLD, allocateColumns, balancedPartition, dragProbe, dropTarget, generateLayout, moveIndex, packLayout, packRows,
   planRowResize, resolveLayout, resolveRowResize, snapEdge, widthPercent,
 } from "../../src/panel_tiles/models/responsive.js"
 
@@ -436,4 +436,48 @@ test("moveIndex converts before and after into Muuri move indices", () => {
   assert.equal(moveIndex(0, 3, "after"), 3)
   assert.equal(moveIndex(4, 1, "before"), 1)
   assert.equal(moveIndex(4, 1, "after"), 2)
+})
+
+test("dropTarget passes a tile once a horizontal drag reaches the swap threshold into it", () => {
+  const {rows, rects} = packRows(boxes([20, 100], [40, 100], [40, 100]), 100)
+  const into = 20 + 40 * SWAP_THRESHOLD
+  assert.deepEqual(dropTarget(rows, rects, 0, into + 1, 50, 1), {ref: 1, side: "after"})
+  assert.deepEqual(dropTarget(rows, rects, 0, into - 1, 50, 1), {ref: 1, side: "before"})
+  const back = 60 - 40 * SWAP_THRESHOLD
+  assert.deepEqual(dropTarget(rows, rects, 2, back - 1, 50, -1), {ref: 1, side: "before"})
+  assert.deepEqual(dropTarget(rows, rects, 2, back + 1, 50, -1), {ref: 1, side: "after"})
+})
+
+// A wide tile 0 beside a narrow one, and a second row below.
+const PROBE = packRows(boxes([75, 300], [25, 100], [50, 100], [50, 100]), 100)
+
+test("dragProbe follows the pointer until the drag has a direction", () => {
+  const rect = {x: 5, y: 10, w: 75, h: 300}
+  assert.deepEqual(dragProbe(PROBE.rows, rect, {x: 6, y: 11}, {x: 0, y: 0}), {x: 6, y: 11})
+})
+
+test("dragProbe uses the edge leading a horizontal drag", () => {
+  const rect = {x: 5, y: 0, w: 75, h: 300}
+  assert.deepEqual(dragProbe(PROBE.rows, rect, {x: 6, y: 1}, {x: 1, y: 0}), {x: 79, y: 1})
+  assert.deepEqual(dragProbe(PROBE.rows, rect, {x: 6, y: 1}, {x: -1, y: 0}), {x: 6, y: 1})
+  // Ten units to the right, the wide tile's edge reaches past the narrow tile's threshold.
+  const {x, y} = dragProbe(PROBE.rows, {...rect, x: 10}, {x: 11, y: 1}, {x: 1, y: 0})
+  assert.ok(x > 75 + 25 * SWAP_THRESHOLD)
+  assert.deepEqual(dropTarget(PROBE.rows, PROBE.rects, 0, x, y, 1), {ref: 1, side: "after"})
+})
+
+test("dragProbe moves a tall tile into the next row once its bottom reaches into it", () => {
+  const reach = 300 + 100 * SWAP_THRESHOLD
+  const short = {x: 0, y: reach - 301, w: 75, h: 300}
+  assert.equal(dragProbe(PROBE.rows, short, {x: 1, y: 1}, {x: 0, y: 1}).y, 1)
+  const past = {x: 0, y: reach - 299, w: 75, h: 300}
+  assert.deepEqual(dragProbe(PROBE.rows, past, {x: 1, y: 2}, {x: 0, y: 1}), {x: 1, y: 301})
+})
+
+test("dragProbe moves a tile up once its top reaches into the previous row", () => {
+  const {rows} = packRows(boxes([60, 300], [40, 100], [60, 100]), 100)
+  const reach = 300 - 300 * SWAP_THRESHOLD
+  // The pointer is still below the first row, but the top edge has not reached far enough into it.
+  assert.equal(dragProbe(rows, {x: 0, y: reach + 1, w: 60, h: 100}, {x: 1, y: 310}, {x: 0, y: -1}).y, 310)
+  assert.equal(dragProbe(rows, {x: 0, y: reach - 1, w: 60, h: 100}, {x: 1, y: 310}, {x: 0, y: -1}).y, 1)
 })

@@ -10,6 +10,8 @@ const DEFAULT_HEIGHT = 200
 // the next free slot when it overflows by more than 0.001px, so a width taken
 // from a resize stays this far under the edge it was dragged or snapped to.
 export const FIT_SLACK_PCT = 0.01
+// Fraction of a tile a drag must reach into, from the side it enters, to pass it.
+export const SWAP_THRESHOLD = 0.25
 
 function overlaps(a, b) {
   return (
@@ -113,10 +115,12 @@ function rowSpot(row, rects, w, h, width) {
  * The row under the pointer is the target: over a tile, its horizontal
  * midpoint decides before or after it; in a hole the pointer goes after the
  * tile above it; right of the row's tiles is the end of that row. Below
- * every row is the end of the grid. Returns {ref, side} relative to another
- * entry, {end: true}, or null to stay put.
+ * every row is the end of the grid. With a horizontal `lead` (-1 or 1) the
+ * pointer only has to reach `SWAP_THRESHOLD` into a tile, from the side it
+ * enters, to pass it. Returns {ref, side} relative to another entry,
+ * {end: true}, or null to stay put.
  */
-export function dropTarget(rows, rects, dragged, x, y) {
+export function dropTarget(rows, rects, dragged, x, y, lead = 0) {
   if (!rows.length || y >= rows[rows.length - 1].bottom) { return {end: true} }
   const row = rows.find(r => y < r.bottom)
   const items = row.items.filter(i => i !== dragged)
@@ -126,7 +130,8 @@ export function dropTarget(rows, rects, dragged, x, y) {
   const hit = items.find(i => spansX(rects[i]) && spansY(rects[i]))
   if (hit !== undefined) {
     const r = rects[hit]
-    return {ref: hit, side: x < r.x + r.w / 2 ? "before" : "after"}
+    const split = lead > 0 ? SWAP_THRESHOLD : lead < 0 ? 1 - SWAP_THRESHOLD : 0.5
+    return {ref: hit, side: x < r.x + r.w * split ? "before" : "after"}
   }
   const above = items.filter(i => spansX(rects[i]) && rects[i].y <= y)
   if (above.length) { return {ref: above[above.length - 1], side: "after"} }
@@ -137,6 +142,28 @@ export function dropTarget(rows, rects, dragged, x, y) {
     .sort((a, b) => rects[a].x - rects[b].x)[0]
   if (next !== undefined) { return {ref: next, side: "before"} }
   return {ref: items[items.length - 1], side: "after"}
+}
+
+/**
+ * The point `dropTarget` should test for a tile dragged by `pointer` whose
+ * current box is `rect`, moving in direction `dir` ({x, y} of -1, 0 or 1).
+ * The pointer sits on the drag handle in the tile's top-left corner, so a
+ * large tile would have to travel its own size before the pointer reaches a
+ * neighbour. The edge leading the movement is used instead: horizontally
+ * that edge itself, vertically the furthest row it reaches `SWAP_THRESHOLD`
+ * of the way into.
+ */
+export function dragProbe(rows, rect, pointer, dir) {
+  let x = pointer.x
+  if (dir.x > 0) { x = rect.x + rect.w - 1 } else if (dir.x < 0) { x = rect.x + 1 }
+  let row = null
+  if (dir.y > 0) {
+    row = rows.filter(r => r.top + (r.bottom - r.top) * SWAP_THRESHOLD <= rect.y + rect.h).pop() ?? null
+  } else if (dir.y < 0) {
+    row = rows.find(r => r.bottom - (r.bottom - r.top) * SWAP_THRESHOLD >= rect.y) ?? null
+  }
+  if (!row || (pointer.y >= row.top && pointer.y < row.bottom)) { return {x, y: pointer.y} }
+  return {x, y: row.top + 1}
 }
 
 /** Muuri move index for an item at `current` going `side` of the item at `ref`. */

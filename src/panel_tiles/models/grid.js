@@ -3,7 +3,7 @@ import Muuri from "https://esm.sh/muuri@0.9.5"
 import interact from "https://esm.sh/interactjs@1.10.27"
 
 import {
-  DEFAULT_REFERENCE_WIDTH, dropTarget, moveIndex, packRows, planRowResize, resolveLayout, resolveRowResize, snapEdge,
+  DEFAULT_REFERENCE_WIDTH, dragProbe, dropTarget, moveIndex, packRows, planRowResize, resolveLayout, resolveRowResize, snapEdge,
   widthPercent,
 } from "./responsive.js"
 
@@ -585,13 +585,33 @@ export async function render({model, el, view}) {
   let packed = null
   const layoutRows = rowLayout(result => { packed = result })
 
+  // Direction of the drag per axis, only flipped after a clear move back so jitter can't swap the leading edge.
+  const DIRECTION_SLACK = 6
+  let heading = null
+
+  function updateHeading(event) {
+    if (!heading) { heading = {x: 0, y: 0, ax: event.clientX, ay: event.clientY} }
+    const dx = event.clientX - heading.ax
+    const dy = event.clientY - heading.ay
+    if (Math.abs(dx) > DIRECTION_SLACK) { heading.x = Math.sign(dx); heading.ax = event.clientX }
+    if (Math.abs(dy) > DIRECTION_SLACK) { heading.y = Math.sign(dy); heading.ay = event.clientY }
+    return heading
+  }
+
   function rowSortPredicate(item, event) {
     if (!packed || !event) { return null }
     const box = container.getBoundingClientRect()
     const style = getComputedStyle(container)
-    const x = event.clientX - box.left - (parseFloat(style.borderLeftWidth) || 0)
-    const y = event.clientY - box.top - (parseFloat(style.borderTopWidth) || 0)
-    const target = dropTarget(packed.rows, packed.rects, packed.items.indexOf(item), x, y)
+    const left = box.left + (parseFloat(style.borderLeftWidth) || 0)
+    const top = box.top + (parseFloat(style.borderTopWidth) || 0)
+    const el = item.getElement().getBoundingClientRect()
+    const rect = {x: el.left - left, y: el.top - top, w: el.width, h: el.height}
+    const pointer = {x: event.clientX - left, y: event.clientY - top}
+    const dir = updateHeading(event)
+    const {x, y} = dragProbe(packed.rows, rect, pointer, dir)
+    // Below every tile is judged by the pointer, so a tall tile in the last row doesn't jump to the end.
+    const below = packed.rows.length && pointer.y >= packed.rows[packed.rows.length - 1].bottom
+    const target = dropTarget(packed.rows, packed.rects, packed.items.indexOf(item), x, below ? pointer.y : y, dir.x)
     if (!target) { return null }
     const all = grid.getItems()
     const current = all.indexOf(item)
@@ -753,6 +773,7 @@ export async function render({model, el, view}) {
     window.removeEventListener("resize", onWindowResize, true)
     observer.disconnect()
   })
+  grid.on("dragStart", () => { heading = null })
   model.on("min_col_width", () => { reclampAll(); refreshLayout() })
   model.on("layout_mode", () => {
     grid._settings.dragSortHeuristics.minBounceBackAngle = rowsMode() ? 0 : 1

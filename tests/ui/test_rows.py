@@ -241,3 +241,38 @@ def test_resize_snaps_height_to_row_height(page):
     wait_until(lambda: grid.layout[0]["height"] != 130, page)
     assert grid.layout[0]["height"] == pytest.approx(200 - 2 * MARGIN, abs=0.5)
     assert grid.layout[0]["width"] == 25
+
+
+def drag_by(page, item, dx, dy):
+    sx, sy = press_drag_handle(page, item)
+    for i in range(1, 11):
+        page.mouse.move(sx + dx * i / 10, sy + dy * i / 10)
+        page.wait_for_timeout(40)
+    page.wait_for_timeout(300)
+    page.mouse.up()
+
+
+@pytest.mark.parametrize("direction", [1, -1], ids=["right", "left"])
+def test_rows_wide_tile_passes_neighbour_after_short_drag(page, direction):
+    # A 75% tile beside a 25% one only has to travel about a third of the narrow tile's width.
+    sizes = [(75, 200), (25, 100)] if direction > 0 else [(25, 100), (75, 200)]
+    wide = 0 if direction > 0 else 1
+    grid, items = serve_grid(page, sizes, layout_mode="rows")
+    narrow = boxes_of(page, items)[1 - wide]
+
+    drag_by(page, items.nth(wide), direction * narrow["width"] * 0.4, 0)
+
+    wait_until(lambda: grid.layout[wide]["index"] == 1 - wide, page)
+
+
+def test_rows_tall_tile_moves_down_after_short_drag(page):
+    sizes = [(50, 300), (50, 300), (50, 100), (50, 100)]
+    grid, items = serve_grid(page, sizes, layout_mode="rows")
+    second_row = boxes_of(page, items)[2]["y"]
+
+    # The pointer stays far above the second row; the tile's bottom edge reaches into it.
+    # Pointing before the row's first tile would mean the end of the first row, which the tile still fits.
+    drag_by(page, items.nth(0), 150, 80)
+
+    wait_until(lambda: grid.layout[0]["index"] > 1, page)
+    assert settled_box(page, items.nth(0))["y"] >= second_row - 1

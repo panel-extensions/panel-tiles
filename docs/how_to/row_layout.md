@@ -36,11 +36,14 @@ The `layout` format is the same in both modes, so you can switch an existing app
 
 ## Dragging
 
-In rows mode a dragged tile goes where the pointer is rather than where it overlaps most:
+In rows mode a dragged tile is placed by the edge leading the drag rather than by how much it overlaps other tiles, so large tiles move as easily as small ones:
 
-- Over a tile, the tile's horizontal midpoint decides whether the dragged tile goes before or after it.
+- Dragging sideways, the tile passes a neighbour once its leading edge reaches a quarter of the way into it.
+- Dragging up or down, the tile moves into another row once its top or bottom edge reaches a quarter of the way into that row.
 - To the right of a row's last tile, the dragged tile goes to the end of that row.
-- Below all tiles, the dragged tile moves to the end of the grid.
+- With the pointer below all tiles, the dragged tile moves to the end of the grid.
+
+Tiles always keep their list order, so a tile placed before the first tile of a row stays at the end of the previous row if it still fits there.
 
 A dashed placeholder shows where the tile will land while you drag, in both modes. Dragging near the edge of the window or of a scrolling container scrolls it.
 
