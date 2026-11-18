@@ -118,6 +118,15 @@ function applyDisplayWidth(grid, el, minColWidth) {
   el.style.width = `calc(${display}% - 20px)`
 }
 
+// A layout entry may leave out a tile's width or height; the tile then keeps
+// the size measured from its content. Clearing the height instead would leave
+// it to CSS, and content that stretches to its tile collapses at auto height.
+function resizeToSpec(grid, el, spec, minColWidth) {
+  const autoWidth = parseFloat(el.getAttribute("data-auto-width")) || 100
+  const autoHeight = parseFloat(el.getAttribute("data-auto-height")) || null
+  resizeItem(grid, el, spec?.width ?? autoWidth, spec?.height ?? autoHeight, minColWidth, false)
+}
+
 function resizeItem(grid, el, width, height, minColWidth, notify=true) {
   setAuthoredWidth(el, width)
   applyDisplayWidth(grid, el, minColWidth)
@@ -904,7 +913,7 @@ export async function render({model, el, view}) {
         const item = grid.getItem(itemEl)
         if (!item) { continue }
         const spec = layout[i] || {}
-        resizeItem(grid, itemEl, spec.width ?? 100, spec.height ?? null, minColWidth(), false)
+        resizeToSpec(grid, itemEl, spec, minColWidth())
         if (spec.visible === false && item.isVisible()) {
           grid.hide([item], {layout: false})
         } else if (spec.visible !== false && !item.isVisible()) {
@@ -1020,10 +1029,14 @@ export async function render({model, el, view}) {
     return !container.clientWidth
   }
 
-  function sizeFromContent(item_el, child, child_model) {
+  function sizeFromContent(item_el, child, child_model, spec) {
+    // Measure the height at the width the tile will have.
+    if (spec?.width != null) { resizeItem(grid, item_el, spec.width, null, minColWidth(), false) }
     const width = getInitialWidth(model, container, child, child_model, item_el)
     const height = getInitialHeight(child, child_model, item_el)
-    resizeItem(grid, item_el, width, height, minColWidth(), false)
+    item_el.setAttribute("data-auto-width", width.toString())
+    if (height) { item_el.setAttribute("data-auto-height", height.toString()) }
+    resizeToSpec(grid, item_el, spec, minColWidth())
   }
 
   // Muuri measures items when it lays out, and while the grid is hidden (an
@@ -1031,8 +1044,8 @@ export async function render({model, el, view}) {
   // it computed then stacks all tiles at the origin until something forces
   // it to measure again.
   function onShown() {
-    for (const [item_el, {child, child_model}] of unsized) {
-      if (item_el.isConnected) { sizeFromContent(item_el, child, child_model) }
+    for (const [item_el, {child, child_model, spec}] of unsized) {
+      if (item_el.isConnected) { sizeFromContent(item_el, child, child_model, spec) }
     }
     unsized.clear()
     reclampAll()
@@ -1130,8 +1143,12 @@ export async function render({model, el, view}) {
     })
 
     try {
-      // Wait for entire child view tree to finish rendering
+      // Wait for entire child view tree to finish rendering. Panel renders
+      // children added by an `objects` change only after notifying us, and
+      // ESM children register their render once their module resolves, so
+      // collecting the ready promises right away would miss that render.
       if (added.length) {
+        await new Promise(resolve => requestAnimationFrame(resolve))
         await childrenReady(view)
         await new Promise(resolve => requestAnimationFrame(resolve))
       }
@@ -1143,18 +1160,18 @@ export async function render({model, el, view}) {
         const item_el = child_to_item.get(child)
         if (!item_el) { continue }
         const spec = currentLayout[i]
-        if (spec && (spec.width != null || spec.height != null)) {
-          resizeItem(grid, item_el, spec.width ?? 100, spec.height ?? null, minColWidth(), false)
-          if (spec.visible === false) {
-            const muuri_item = grid.getItem(item_el)
-            if (muuri_item) { grid.hide([muuri_item], {layout: false}) }
-          }
+        if (spec?.width != null && spec?.height != null) {
+          resizeToSpec(grid, item_el, spec, minColWidth())
         } else if (isHidden()) {
           // Content has no size while the grid is hidden, so measuring now
           // would size the tile from nothing; size it once it is shown.
-          unsized.set(item_el, {child, child_model: next_models[i]})
+          unsized.set(item_el, {child, child_model: next_models[i], spec})
         } else {
-          sizeFromContent(item_el, child, next_models[i])
+          sizeFromContent(item_el, child, next_models[i], spec)
+        }
+        if (spec?.visible === false) {
+          const muuri_item = grid.getItem(item_el)
+          if (muuri_item) { grid.hide([muuri_item], {layout: false}) }
         }
       }
 

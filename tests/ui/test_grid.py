@@ -9,6 +9,7 @@ from panel import Column, Spacer
 from panel.custom import JSComponent
 from panel.pane import Bokeh, Markdown
 from panel.tests.util import serve_component, wait_until
+from panel.widgets import TextInput
 from playwright.sync_api import expect
 
 from panel_tiles import TileGrid
@@ -854,6 +855,58 @@ def test_grid_items_added_while_parent_hidden_lay_out_when_shown(page):
 
     expect(items.nth(2)).to_be_visible()
     assert_laid_out_without_overlap(item_boxes(page, items))
+
+
+def stretching_tile():
+    """Content that fills its tile, so it collapses if the tile has no height."""
+    body = Column(TextInput(value="Text", sizing_mode="stretch_width"), sizing_mode="stretch_both")
+    return Column(body, sizing_mode="stretch_both")
+
+
+def test_grid_entry_without_height_keeps_content_height(page):
+    grid = TileGrid(
+        objects=[stretching_tile(), Markdown("Explicit")],
+        layout=[{}, {"width": 50, "height": 200}],
+        editable=False,
+        local_save=False,
+        width=600,
+    )
+    serve_component(page, grid)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+
+    first, second = item_boxes(page, items)
+    assert first["height"] >= 50
+    assert second["height"] == 200
+    assert_laid_out_without_overlap([first, second])
+
+
+class DelayedContent(JSComponent):
+    """Renders its content asynchronously and reports it through its ready promise, like a React component."""
+
+    _esm = """
+    export function render({view, el}) {
+      view._await_ready(new Promise(resolve => setTimeout(() => {
+        const div = document.createElement("div")
+        div.style.height = "100px"
+        el.append(div)
+        resolve()
+      }, 100)))
+    }
+    """
+
+
+def test_grid_items_added_later_are_sized_from_rendered_content(page):
+    grid = TileGrid(objects=[], editable=False, local_save=False, width=600)
+    serve_component(page, grid)
+    page.wait_for_timeout(500)
+
+    grid.objects = [DelayedContent()]
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(1)
+
+    (box,) = item_boxes(page, items)
+    assert box["height"] >= 100
 
 
 class StalledView(JSComponent):
