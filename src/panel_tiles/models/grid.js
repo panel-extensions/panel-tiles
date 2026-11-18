@@ -3,8 +3,8 @@ import Muuri from "https://esm.sh/muuri@0.9.5"
 import interact from "https://esm.sh/interactjs@1.10.27"
 
 import {
-  DEFAULT_REFERENCE_WIDTH, bandWidth, dragProbe, dropTarget, moveIndex, packRows, planRowResize, planRowSplit, resolveLayout,
-  resolveRowResize, resolveRowSplit, snapEdge, widthPercent,
+  DEFAULT_REFERENCE_WIDTH, bandWidth, dragProbe, dropTarget, fitRows, moveIndex, packRows, planRowResize, planRowSplit,
+  resolveLayout, resolveRowResize, resolveRowSplit, snapEdge, widthPercent,
 } from "./responsive.js"
 
 function getLSKey(name) {
@@ -79,6 +79,7 @@ function gridWidth(grid) {
 function setAuthoredWidth(el, width) {
   width = Math.min(100, Math.max(width, 1))
   el.setAttribute("data-width", width.toString())
+  el.removeAttribute("data-fit-width")
 }
 
 function clampWidthForItem(grid, el, width) {
@@ -98,14 +99,16 @@ function clampWidthForItem(grid, el, width) {
   return width
 }
 
+// A width fitted to the tile's row (see `fitRows`) replaces raising the tile
+// to its minimum on its own, which would push the row past the container.
 function applyDisplayWidth(grid, el, minColWidth) {
   const containerWidth = gridWidth(grid)
-  const authored = parseFloat(el.getAttribute("data-width")) || 100
-  let display = authored
+  const fitted = parseFloat(el.getAttribute("data-fit-width"))
+  let display = fitted || parseFloat(el.getAttribute("data-width")) || 100
   if (containerWidth > 0) {
     const itemMin = parseFloat(el.getAttribute("data-min-width")) || 0
     const effectiveMin = Math.max(minColWidth || 0, itemMin)
-    if (effectiveMin > 0) {
+    if (effectiveMin > 0 && !fitted) {
       const minPct = (effectiveMin / containerWidth) * 100
       if (display < minPct) { display = Math.min(100, minPct) }
     }
@@ -115,7 +118,10 @@ function applyDisplayWidth(grid, el, minColWidth) {
       if (display > maxPct) { display = maxPct }
     }
   }
-  el.style.width = `calc(${display}% - 20px)`
+  const width = `calc(${display}% - 20px)`
+  if (el.style.width === width) { return false }
+  el.style.width = width
+  return true
 }
 
 // A layout entry may leave out a tile's width or height; the tile then keeps
@@ -750,13 +756,46 @@ export async function render({model, el, view}) {
 
   const minColWidth = () => model.min_col_width || null
 
-  function reclampAll() {
-    if (!model.min_col_width) { return }
-    for (const item of grid.getItems()) {
-      applyDisplayWidth(grid, item.getElement(), minColWidth())
+  // Fits tile widths to their rows at the current container width and
+  // returns whether any tile's displayed width changed.
+  function fitDisplayWidths() {
+    const items = grid.getItems()
+    const width = gridWidth(grid)
+    if (!items.length || !(width > 0)) { return false }
+    if (!state.interacting) {
+      const layout = exportLayout(grid, ids)
+      const minWidths = []
+      for (let i = 0; i < ids.length; i++) {
+        const itemEl = itemElement(i)
+        const min = Math.max(model.min_col_width || 0, parseFloat(itemEl?.getAttribute("data-min-width")) || 0)
+        minWidths[i] = (min / width) * 100
+      }
+      // A previewed band wider than the container shows its layout scaled
+      // down, rather than wrapping rows that have no room for their minimums.
+      const scale = layoutWidth() > width + 0.5
+      const fitted = fitRows(layout, {minWidths, packing: model.layout_mode, scale})
+      for (let i = 0; i < ids.length; i++) {
+        const itemEl = itemElement(i)
+        if (!itemEl) { continue }
+        if (fitted?.[i] == null) {
+          itemEl.removeAttribute("data-fit-width")
+        } else {
+          itemEl.setAttribute("data-fit-width", fitted[i].toString())
+        }
+      }
     }
-    grid.refreshItems()
-    grid.layout()
+    let changed = false
+    for (const item of items) {
+      changed = applyDisplayWidth(grid, item.getElement(), minColWidth()) || changed
+    }
+    return changed
+  }
+
+  function reclampAll() {
+    if (fitDisplayWidths()) {
+      grid.refreshItems()
+      grid.layout()
+    }
   }
 
   const flags = {layout_from_client: false, responsive_from_client: false}
@@ -926,6 +965,7 @@ export async function render({model, el, view}) {
     }
     displayed = {band, source: editsBase ? "base" : "custom", sig: JSON.stringify(layout)}
     updateToolbar()
+    reclampAll()
   }
 
   function resetOverride() {
@@ -1005,6 +1045,7 @@ export async function render({model, el, view}) {
         const item = itemEl && grid.getItem(itemEl)
         if (item) { grid.move(item, index, {layout: false}) }
       }
+      fitDisplayWidths()
       grid.refreshItems()
       grid.layout()
     } finally {
@@ -1258,6 +1299,7 @@ export async function render({model, el, view}) {
 
       grid.refreshSortData()
       grid.sort("id", {layout: false})
+      fitDisplayWidths()
       grid.refreshItems()
       grid.layout()
       // Resolve before revealing new tiles so narrow screens never flash the base layout.

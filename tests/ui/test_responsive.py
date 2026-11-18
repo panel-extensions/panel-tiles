@@ -4,6 +4,7 @@ import pytest
 
 pytest.importorskip("playwright")
 
+from panel.layout import Spacer
 from panel.pane import Markdown
 from panel.tests.util import serve_component, wait_until
 from playwright.sync_api import expect
@@ -849,3 +850,130 @@ def test_show_breakpoint_toolbar_hides_chips(page):
     grid.show_breakpoint_toolbar = True
     expect(toolbar).to_be_visible()
     expect(toolbar.locator(".muuri-breakpoint-chip.active")).to_have_attribute("data-band", "xs")
+
+
+def _boxes(page):
+    return page.locator(".muuri-grid-item").evaluate_all(
+        """els => els.map(el => {
+          const r = el.getBoundingClientRect()
+          const c = el.parentElement.getBoundingClientRect()
+          return {left: r.left - c.left, right: r.right - c.left, top: r.top - c.top, container: c.width}
+        })"""
+    )
+
+
+def _settled_boxes(page):
+    boxes = [None]
+
+    def settled():
+        current = _boxes(page)
+        stable = current == boxes[0]
+        boxes[0] = current
+        page.wait_for_timeout(150)
+        return stable
+
+    wait_until(settled, page)
+    return boxes[0]
+
+
+def _same_row(boxes, *indices):
+    return len({round(boxes[i]["top"]) for i in indices}) == 1
+
+
+# Desktop band (md, from 1200px) previewed in a 1040px grid: the heading and
+# KPI must stay on one row even though the KPI's 300px minimum is more than
+# 25% of the grid.
+HEADING_KPI_LAYOUT = [
+    {"index": 0, "width": 75, "height": 120, "visible": True},
+    {"index": 1, "width": 25, "height": 120, "visible": True},
+    {"index": 2, "width": 50, "height": 120, "visible": True},
+    {"index": 3, "width": 50, "height": 120, "visible": True},
+]
+
+
+def _heading_kpi_grid(width, **kwargs):
+    return TileGrid(
+        objects=[
+            Spacer(styles={"background": "red"}, min_width=360),
+            Spacer(styles={"background": "green"}, min_width=300),
+            Spacer(styles={"background": "blue"}, min_width=200),
+            Spacer(styles={"background": "gray"}, min_width=200),
+        ],
+        breakpoints=[768, 1200],
+        layout=HEADING_KPI_LAYOUT,
+        reference_width=1200,
+        local_save=False,
+        width=width,
+        height=500,
+        **kwargs,
+    )
+
+
+def test_preview_band_wider_than_grid_keeps_rows_together(page):
+    grid = _heading_kpi_grid(1040, preview_band="md", editable=True)
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(4)
+    wait_until(lambda: items.nth(1).evaluate("el => el.style.height") == "120px", page)
+    boxes = _settled_boxes(page)
+
+    assert _same_row(boxes, 0, 1)
+    assert boxes[1]["left"] > boxes[0]["right"] - 1
+    assert boxes[1]["right"] <= boxes[1]["container"] + 0.5
+    # The KPI gets its minimum and the heading gives up the difference.
+    assert boxes[1]["right"] - boxes[1]["left"] >= 300 - 20 - 1
+    assert _same_row(boxes, 2, 3)
+    assert data_widths(items) == ["75", "25", "50", "50"]
+    assert [entry["width"] for entry in grid.layout] == [75, 25, 50, 50]
+
+
+def test_preview_band_wider_than_grid_scales_rows_without_room(page):
+    grid = _heading_kpi_grid(500, preview_band="md", editable=True)
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(4)
+    wait_until(lambda: items.nth(1).evaluate("el => el.style.height") == "120px", page)
+    boxes = _settled_boxes(page)
+
+    # Previewing Desktop scales its rows down rather than wrapping them.
+    assert _same_row(boxes, 0, 1)
+    assert _same_row(boxes, 2, 3)
+    assert max(box["right"] for box in boxes) <= boxes[0]["container"] + 0.5
+    assert data_widths(items) == ["75", "25", "50", "50"]
+
+
+def test_edit_in_a_fitted_row_keeps_the_authored_widths(page):
+    grid = _heading_kpi_grid(1040, preview_band="md", editable=True)
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(4)
+    wait_until(lambda: items.nth(1).evaluate("el => el.style.height") == "120px", page)
+
+    drag_resize(page, items.nth(0), dx=0, dy=60)
+
+    wait_until(lambda: grid.layout[0]["height"] > 120, page)
+    assert [entry["width"] for entry in grid.layout] == [75, 25, 50, 50]
+    assert grid.reference_width == 1200
+    boxes = _settled_boxes(page)
+    assert _same_row(boxes, 0, 1)
+    assert boxes[1]["right"] <= boxes[1]["container"] + 0.5
+
+
+def test_scale_mode_keeps_rows_together_with_minimums(page):
+    grid = _heading_kpi_grid(1040, responsive_mode="scale", editable=False)
+
+    serve_component(page, grid)
+
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(4)
+    wait_until(lambda: items.nth(1).evaluate("el => el.style.height") == "120px", page)
+    boxes = _settled_boxes(page)
+
+    assert _same_row(boxes, 0, 1)
+    assert boxes[1]["right"] <= boxes[1]["container"] + 0.5

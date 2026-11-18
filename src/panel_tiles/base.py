@@ -134,8 +134,9 @@ class TileGrid(JSComponent, ListLike):
         Label of the breakpoint band (e.g. "xs") the grid previews and edits,
         or None to follow the container width. Edits made while the band
         containing `reference_width` is previewed update `layout`, edits to
-        any other band update `responsive_layouts`. Clicking a toolbar chip
-        updates it.""",
+        any other band update `responsive_layouts`. A band wider than the
+        grid is shown scaled down to the grid's width rather than wrapped.
+        Clicking a toolbar chip updates it.""",
     )
 
     show_breakpoint_toolbar = param.Boolean(
@@ -162,7 +163,8 @@ class TileGrid(JSComponent, ListLike):
         doc="""
         Minimum tile width in pixels. When the container is too narrow
         for a tile at its authored percentage, the tile is responsively
-        widened to prevent overflow. The persisted layout is unaffected.""",
+        widened to prevent overflow, taking the room from the other tiles
+        in its row where they have it. The persisted layout is unaffected.""",
     )
 
     layout = param.List(
