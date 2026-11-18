@@ -822,26 +822,55 @@ def assert_no_edit_state(page):
         assert item == {"outline": "none", "resizeState": None, "willMove": False}
 
 
-def cancel_pointer(page):
-    page.locator(".muuri-grid").evaluate("() => document.dispatchEvent(new PointerEvent('pointercancel', {pointerId: 1, pointerType: 'mouse', bubbles: true}))")
+def end_pointer(page, event):
+    page.locator(".muuri-grid-item").nth(1).locator(".muuri-handle.resize").evaluate(
+        f"el => el.dispatchEvent(new PointerEvent('{event}', {{pointerId: 1, pointerType: 'mouse', bubbles: true, composed: true}}))"
+    )
+
+
+def assert_resize_stopped(page, grid, items):
+    """Moving the still pressed pointer neither resizes the tile nor commits a new layout."""
+    wait_until(lambda: grid.layout[1]["width"] != 30, page)
+    layout = grid.layout
+    width = settled_box(page, items.nth(1))["width"]
+    page.mouse.move(500, 300, steps=10)
+    page.wait_for_timeout(300)
+    assert settled_box(page, items.nth(1))["width"] == width
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    assert grid.layout == layout
 
 
 @pytest.mark.parametrize("overshoot", [30, 160], ids=["fill", "overflow"])
-@pytest.mark.parametrize("end", ["cancel", "hold"])
+@pytest.mark.parametrize("end", ["pointercancel", "lostpointercapture", "hold"])
 def test_grid_leaving_edit_mode_clears_resize_feedback(page, end, overshoot):
     grid, items = serve_row_grid(page)
     drag_past_row_end(page, items, overshoot)
     expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "fill" if overshoot == 30 else "overflow")
 
-    if end == "cancel":
-        cancel_pointer(page)
+    if end != "hold":
+        end_pointer(page, end)
     grid.editable = False
 
     expect(page.locator(".muuri-grid")).to_have_class(re.compile("muuri-no-handles"))
     assert grid.selected == 1
     assert_no_edit_state(page)
-    page.mouse.up()
+    assert_resize_stopped(page, grid, items)
     assert_no_edit_state(page)
+
+
+@pytest.mark.parametrize("overshoot", [30, 160], ids=["fill", "overflow"])
+def test_grid_lost_pointer_capture_ends_resize(page, overshoot):
+    grid, items = serve_row_grid(page)
+    drag_past_row_end(page, items, overshoot)
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "fill" if overshoot == 30 else "overflow")
+
+    end_pointer(page, "lostpointercapture")
+
+    expect(page.locator(".muuri-grid")).not_to_have_attribute("data-resize-state", re.compile(".*"))
+    expect(page.locator(".muuri-will-move")).to_have_count(0)
+    expect(page.locator(".muuri-row-marker")).to_have_count(0)
+    assert_resize_stopped(page, grid, items)
 
 
 def test_grid_resizes_in_each_of_two_grids(page):

@@ -266,6 +266,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
   // reports snapped coordinates and fires no move while the snapped size is
   // unchanged, as when a tile already filling its row is dragged past the end.
   let press = null
+  let interaction = null
   const minColWidth = () => model.min_col_width || null
   const tolerance = () => model.overflow_tolerance ?? 0
   let notified = 0
@@ -330,11 +331,21 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     ghost.remove()
   }
 
-  // Leaving edit mode mid-resize drops its feedback; an interact resize still
-  // in progress keeps the size it reached, without the row fill or overflow.
-  function reset() {
+  // Ends a resize without a release: the tile keeps and commits the size it
+  // reached, without the pending row fill or overflow.
+  function stopResize() {
+    if (resizeStart) { resizeStart.decision = null }
+    if (interaction?.interacting()) {
+      interaction.end()
+    } else if (resizeStart?.raw) {
+      clearResizeState()
+      resizeStart = null
+    }
     press = null
-    if (resizeStart?.raw) { resizeStart = null } else if (resizeStart) { resizeStart.decision = null }
+  }
+
+  function reset() {
+    stopResize()
     clearResizeState()
     container.classList.remove("muuri-no-select")
   }
@@ -352,13 +363,13 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     const item = grid.getItem(el)
     const margin = item.getMargin()
     press = {
-      el, x: e.clientX, moved: false, plan: rowPlan(el),
+      el, pointerId: e.pointerId, x: e.clientX, moved: false, plan: rowPlan(el),
       border: el.getBoundingClientRect().width, outer: item.getWidth() + margin.left + margin.right,
     }
   }
 
   function onPointerMove(e) {
-    if (!press || !model.editable || Math.abs(e.clientX - press.x) < 1) { return }
+    if (!press || Math.abs(e.clientX - press.x) < 1) { return }
     press.moved = true
     const {el, plan} = press
     // Once the size changes interact's move handler takes over.
@@ -374,7 +385,6 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     showResizeState(el, decision, el.getBoundingClientRect().height)
   }
 
-  // A cancelled press, or one whose pointer capture was lost, ends like a release.
   function onPointerUp() {
     if (resizeStart?.raw && !state.interacting) {
       clearResizeState()
@@ -383,9 +393,13 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     press = null
   }
 
+  function onPointerLost(e) {
+    if (press && e.pointerId === press.pointerId) { stopResize() }
+  }
+
   const pointerListeners = {
     pointerdown: onPointerDown, pointermove: onPointerMove,
-    pointerup: onPointerUp, pointercancel: onPointerUp, lostpointercapture: onPointerUp,
+    pointerup: onPointerUp, pointercancel: onPointerLost, lostpointercapture: onPointerLost,
   }
   for (const [type, listener] of Object.entries(pointerListeners)) { window.addEventListener(type, listener, true) }
   // Scoped to this grid: a selector interactable is shared page-wide, so the
@@ -401,6 +415,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     listeners: {
       start(event) {
         state.interacting = true
+        interaction = event.interaction
         const el = event.target
         onSelect(el)
         resizeStart = {
@@ -427,7 +442,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
         let outer = ev.rect.width + left + right
         // The pointer, not the snapped rect, tells a sideways drag from a height-only one:
         // a tile already filling its row snaps straight back to its own width.
-        if (ours && resizeStart.plan && press?.el === ev.target && press.moved && model.editable) {
+        if (ours && resizeStart.plan && press?.el === ev.target && press.moved) {
           const decision = resolveRowResize(resizeStart.plan, outer, tolerance())
           resizeStart.decision = decision
           outer = decision.width
@@ -443,6 +458,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
       },
       end(ev) {
         state.interacting = false
+        interaction = null
         const decision = resizeStart?.el === ev.target ? resizeStart.decision : null
         resizeStart = null
         clearResizeState()
