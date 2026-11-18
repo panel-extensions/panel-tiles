@@ -47,6 +47,25 @@ Tiles always keep their list order, so a tile placed before the first tile of a 
 
 A dashed placeholder shows where the tile will land while you drag, in both modes. Dragging near the edge of the window or of a scrolling container scrolls it.
 
+## Resizing Within a Row
+
+In rows mode, resizing a tile's width moves the boundary between it and the tile to its right, like dragging the divider of a split pane. Widening the tile shrinks its neighbour and narrowing it widens the neighbour, so the row stays full, the neighbour's right edge stays where it is, and no tile moves to another row:
+
+- If the row has spare room, the tile grows into it first, pushing the tiles after it along. The neighbour only starts to shrink once the row is full.
+- Tiles stacked on top of one another beside the resized tile shrink or grow together, so they stay aligned.
+- The resize stops when the neighbour reaches its minimum width (100 pixels, or the `min_width` of its content or `min_col_width` if either is larger) or its maximum width.
+- The last tile in a row has no neighbour to its right, so widening it past the end of the row reflows the row on release, as described in [Resizing and Snapping](basic_grid.md#resizing-and-snapping).
+
+While the boundary is moving, the resized tile is outlined and a marker shows the shared edge.
+
+Set `row_resize="wrap"` to let tiles grow past the end of their row instead, so the tiles that no longer fit move to the next row on release:
+
+```python
+grid = TileGrid(objects=[...], layout_mode="rows", row_resize="wrap")
+```
+
+`row_resize` has no effect in masonry mode, which has no fixed rows to split.
+
 ## Snapping to Columns and Rows
 
 Resized tiles snap to the edges of their neighbours and to the end of their row. Set `columns` to also snap widths to a column grid, and `row_height` to snap heights to a fixed step:

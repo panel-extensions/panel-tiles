@@ -23,7 +23,7 @@
   outline-offset: 1px;
 }
 
-/* Resize feedback: filling the row end, or overflowing it on release */
+/* Resize feedback: filling the row end, moving the boundary with a neighbour, or overflowing the row on release */
 .muuri-row-marker,
 .muuri-resize-ghost {
   position: absolute;
@@ -57,7 +57,7 @@
   display: none;
 }
 
-:where(.muuri-grid:not(.muuri-no-handles)) .muuri-grid-item[data-resize-state="fill"] {
+:where(.muuri-grid:not(.muuri-no-handles)) .muuri-grid-item:is([data-resize-state="fill"], [data-resize-state="split"]) {
   outline: 1px solid color-mix(in srgb, var(--tile-snap-color) 70%, transparent);
   outline-offset: 1px;
 }

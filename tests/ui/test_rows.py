@@ -276,3 +276,123 @@ def test_rows_tall_tile_moves_down_after_short_drag(page):
 
     wait_until(lambda: grid.layout[0]["index"] > 1, page)
     assert settled_box(page, items.nth(0))["y"] >= second_row - 1
+
+
+def press_resize_handle(page, item):
+    handle = settled_box(page, item.locator(".muuri-handle.resize"))
+    x, y = handle["x"] + handle["width"] / 2, handle["y"] + handle["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    return x, y
+
+
+SPLIT_ROW = [(60, 150), (40, 150), (100, 100)]
+
+
+@pytest.mark.parametrize(("dx", "widths"), [(100, (70, 30)), (-100, (50, 50))], ids=["widen", "narrow"])
+def test_rows_resize_in_full_row_moves_the_boundary(page, dx, widths):
+    grid, items = serve_grid(page, SPLIT_ROW, layout_mode="rows")
+    before = boxes_of(page, items)
+    x, y = press_resize_handle(page, items.nth(0))
+    page.mouse.move(x + dx, y, steps=10)
+
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "split")
+    expect(items.nth(0)).to_have_attribute("data-resize-state", "split")
+    expect(page.locator(".muuri-row-marker")).to_have_count(1)
+    expect(page.locator(".muuri-will-move")).to_have_count(0)
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[1]["width"] != 40, page)
+    expect(page.locator(".muuri-row-marker")).to_have_count(0)
+    assert grid.layout[0]["width"] == pytest.approx(widths[0], abs=0.1)
+    assert grid.layout[1]["width"] == pytest.approx(widths[1], abs=0.1)
+    assert grid.layout[0]["width"] + grid.layout[1]["width"] <= 100
+    after = boxes_of(page, items)
+    assert [box["y"] for box in after] == [box["y"] for box in before]
+    assert after[1]["x"] + after[1]["width"] == pytest.approx(before[1]["x"] + before[1]["width"], abs=0.5)
+
+
+def test_rows_split_stops_at_the_neighbours_minimum_width(page):
+    grid, items = serve_grid(page, SPLIT_ROW, layout_mode="rows")
+    before = boxes_of(page, items)
+    x, y = press_resize_handle(page, items.nth(0))
+    page.mouse.move(x + 600, y, steps=10)
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[1]["width"] != 40, page)
+    after = boxes_of(page, items)
+    assert after[1]["y"] == before[1]["y"]
+    # 100px border box plus its margins.
+    assert after[1]["width"] == pytest.approx(100, abs=1)
+    assert grid.layout[0]["width"] + grid.layout[1]["width"] <= 100
+
+
+def test_rows_split_grows_into_spare_room_first(page):
+    grid, items = serve_grid(page, [(30, 120), (30, 120), (25, 120)], layout_mode="rows")
+    before = boxes_of(page, items)
+    x, y = press_resize_handle(page, items.nth(1))
+    # 150px of spare room, then 100px taken from the last tile.
+    page.mouse.move(x + 250, y, steps=10)
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "split")
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[2]["width"] != 25, page)
+    assert grid.layout[1]["width"] == pytest.approx(55, abs=0.1)
+    assert grid.layout[2]["width"] == pytest.approx(15, abs=0.1)
+    after = boxes_of(page, items)
+    assert [box["y"] for box in after] == [box["y"] for box in before]
+
+
+def test_rows_split_shrinks_stacked_neighbours_together(page):
+    sizes = [(30, 300), (30, 120), (30, 120), (30, 120)]
+    grid, items = serve_grid(page, sizes, layout_mode="rows")
+    before = boxes_of(page, items)
+    assert before[3]["x"] == before[1]["x"]
+    x, y = press_resize_handle(page, items.nth(0))
+    page.mouse.move(x + 150, y, steps=10)
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[1]["width"] != 30, page)
+    assert grid.layout[1]["width"] == pytest.approx(25, abs=0.1)
+    assert grid.layout[3]["width"] == pytest.approx(25, abs=0.1)
+    assert grid.layout[2]["width"] == 30
+    after = boxes_of(page, items)
+    assert [box["y"] for box in after] == [box["y"] for box in before]
+    assert after[3]["x"] == after[1]["x"]
+
+
+def test_rows_resize_of_last_tile_in_row_still_overflows(page):
+    grid, items = serve_grid(page, SPLIT_ROW, layout_mode="rows")
+    before = boxes_of(page, items)
+    x, y = press_resize_handle(page, items.nth(1))
+    page.mouse.move(x + 160, y, steps=10)
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[1]["width"] > 40, page)
+    assert grid.layout[0]["width"] == 60
+    assert settled_box(page, items.nth(1))["y"] > before[1]["y"]
+
+
+def test_rows_wrap_resize_reflows_instead_of_splitting(page):
+    grid, items = serve_grid(page, SPLIT_ROW, layout_mode="rows", row_resize="wrap")
+    before = boxes_of(page, items)
+    x, y = press_resize_handle(page, items.nth(0))
+    page.mouse.move(x + 160, y, steps=10)
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[0]["width"] > 60, page)
+    assert grid.layout[1]["width"] == 40
+    assert settled_box(page, items.nth(1))["y"] > before[1]["y"]
+
+
+def test_rows_height_only_resize_leaves_neighbour_alone(page):
+    grid, items = serve_grid(page, SPLIT_ROW, layout_mode="rows")
+    x, y = press_resize_handle(page, items.nth(0))
+    page.mouse.move(x, y + 60, steps=10)
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[0]["height"] != 150, page)
+    assert grid.layout[0]["width"] == 60
+    assert grid.layout[1]["width"] == 40

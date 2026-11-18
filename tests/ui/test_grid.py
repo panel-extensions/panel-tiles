@@ -681,7 +681,7 @@ def test_grid_resize_slightly_past_row_end_fills_it(page, layout_mode):
 
 @pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
 def test_grid_resize_well_past_row_end_reflows(page, layout_mode):
-    grid, items = serve_row_grid(page, layout_mode=layout_mode)
+    grid, items = serve_row_grid(page, layout_mode=layout_mode, row_resize="wrap")
     tuning = drag_past_row_end(page, items, 160)
 
     expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
@@ -699,7 +699,7 @@ def test_grid_resize_well_past_row_end_reflows(page, layout_mode):
 
 @pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
 def test_grid_resize_without_overflow_tolerance_reflows_at_row_end(page, layout_mode):
-    grid, items = serve_row_grid(page, overflow_tolerance=0, layout_mode=layout_mode)
+    grid, items = serve_row_grid(page, overflow_tolerance=0, layout_mode=layout_mode, row_resize="wrap")
     drag_past_row_end(page, items, 30)
 
     expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
@@ -746,7 +746,7 @@ STACKED_LAYOUT = [
 ]
 
 
-def serve_stacked_grid(page, layout_mode="masonry"):
+def serve_stacked_grid(page, layout_mode="masonry", **kwargs):
     """A tall Map with Weights and Tuning beside it and Series below Weights."""
     grid = TileGrid(
         objects=[Markdown(name) for name in ("Map", "Weights", "Tuning", "Series")],
@@ -754,6 +754,7 @@ def serve_stacked_grid(page, layout_mode="masonry"):
         layout_mode=layout_mode,
         local_save=False,
         width=1000,
+        **kwargs,
     )
     serve_component(page, grid)
     items = page.locator(".muuri-grid-item")
@@ -793,7 +794,7 @@ def test_grid_resize_beside_stacked_tiles_fills_row(page, layout_mode):
 
 @pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
 def test_grid_resize_beside_stacked_tiles_shows_overflow(page, layout_mode):
-    grid, items = serve_stacked_grid(page, layout_mode=layout_mode)
+    grid, items = serve_stacked_grid(page, layout_mode=layout_mode, row_resize="wrap")
     drag_stacked_past_row_end(page, items, 160)
 
     expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")

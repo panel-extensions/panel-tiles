@@ -3,8 +3,8 @@ import Muuri from "https://esm.sh/muuri@0.9.5"
 import interact from "https://esm.sh/interactjs@1.10.27"
 
 import {
-  DEFAULT_REFERENCE_WIDTH, bandWidth, dragProbe, dropTarget, moveIndex, packRows, planRowResize, resolveLayout, resolveRowResize,
-  snapEdge, widthPercent,
+  DEFAULT_REFERENCE_WIDTH, bandWidth, dragProbe, dropTarget, moveIndex, packRows, planRowResize, planRowSplit, resolveLayout,
+  resolveRowResize, resolveRowSplit, snapEdge, widthPercent,
 } from "./responsive.js"
 
 function getLSKey(name) {
@@ -219,6 +219,8 @@ function childrenReady(view) {
 }
 
 const SNAP_RANGE = 50
+// interact's `restrictSize` minimum for a tile's border box.
+const MIN_TILE_WIDTH = 100
 const RESIZE_NOTIFY_MS = 100
 
 function outerSize(item) {
@@ -292,11 +294,38 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
       const m = item.getMargin()
       return {left, top, width: item.getWidth() + m.left + m.right, height: item.getHeight() + m.top + m.bottom}
     })
-    const plan = planRowResize(boxes, index, gridWidth(grid))
+    let plan = planRowResize(boxes, index, gridWidth(grid))
     // A tile that already overflows its row has no remaining space to fill.
     if (plan.fill < boxes[index].width - 0.5) { return null }
-    return {...plan, top: boxes[index].top, elements: items.map(item => item.getElement())}
+    if (model.layout_mode === "rows" && model.row_resize === "split") {
+      const mins = items.map(item => {
+        const el = item.getElement()
+        const m = item.getMargin()
+        return Math.max(MIN_TILE_WIDTH + m.left + m.right, parseFloat(el.getAttribute("data-min-width")) || 0, minColWidth() || 0)
+      })
+      const maxes = items.map(item => parseFloat(item.getElement().getAttribute("data-max-width")) || Infinity)
+      plan = planRowSplit(plan, boxes, mins, maxes)
+    }
+    const elements = items.map(item => item.getElement())
+    const widths = elements.map(el => parseFloat(el.getAttribute("data-width")) || 100)
+    return {...plan, top: boxes[index].top, elements, widths}
   }
+
+  // The neighbours take the width the resized tile gives up or gains past its
+  // base, in authored percentages so a full row stays exactly full.
+  function applySplit(plan, decision, width) {
+    const {split} = plan
+    const base = split.full ? plan.widths[plan.index] : widthPercent(split.base, gridWidth(grid))
+    const shift = decision.state === "split" ? width - base : 0
+    for (const {index} of split.neighbors) {
+      const el = plan.elements[index]
+      const pct = shift ? Math.floor((plan.widths[index] - shift) * 1e4) / 1e4 : plan.widths[index]
+      setAuthoredWidth(el, pct)
+      applyDisplayWidth(grid, el, minColWidth())
+    }
+  }
+
+  const resolvePlan = (plan, desired) => plan.split ? resolveRowSplit(plan, desired) : resolveRowResize(plan, desired, tolerance())
 
   function showResizeState(el, decision, height) {
     const {plan} = resizeStart
@@ -314,7 +343,8 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     }
     if (!marker.isConnected) { container.append(marker, ghost) }
     const top = `${plan.top + margin.top}px`
-    marker.style.left = `${plan.end - margin.right / 2 - 1}px`
+    const edge = decision.state === "split" ? plan.left + decision.width : plan.end
+    marker.style.left = `${edge - margin.right / 2 - 1}px`
     marker.style.top = top
     marker.style.height = `${height}px`
     ghost.style.left = `${plan.left + margin.left}px`
@@ -372,8 +402,8 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     if (!press || Math.abs(e.clientX - press.x) < 1) { return }
     press.moved = true
     const {el, plan} = press
-    // Once the size changes interact's move handler takes over.
-    if (!plan || Math.abs(el.getBoundingClientRect().width - press.border) > 0.5) { return }
+    // Once the size changes interact's move handler takes over; a split never holds the size at the row end.
+    if (!plan || plan.split || Math.abs(el.getBoundingClientRect().width - press.border) > 0.5) { return }
     const raw = press.outer + e.clientX - press.x
     const snapped = snapEdge(raw, [], {range: SNAP_RANGE, fill: plan.fill, tolerance: tolerance()})
     const decision = resolveRowResize(plan, snapped ?? raw, tolerance())
@@ -443,7 +473,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
         // The pointer, not the snapped rect, tells a sideways drag from a height-only one:
         // a tile already filling its row snaps straight back to its own width.
         if (ours && resizeStart.plan && press?.el === ev.target && press.moved) {
-          const decision = resolveRowResize(resizeStart.plan, outer, tolerance())
+          const decision = resolvePlan(resizeStart.plan, outer)
           resizeStart.decision = decision
           outer = decision.width
           showResizeState(ev.target, decision, h)
@@ -453,7 +483,10 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
         const w = unchanged ? resizeStart.width : clampWidthForItem(grid, ev.target, widthPercent(outer, gridWidth(grid)))
         ev.target.style.zIndex = 100
         resizeItem(grid, ev.target, w, h, minColWidth(), false)
-        grid.refreshItems(); grid.layout()
+        const split = ours && !!resizeStart.plan?.split
+        if (split && resizeStart.decision) { applySplit(resizeStart.plan, resizeStart.decision, w) }
+        // A neighbour's width applies at once, so an animated move would let its right edge swing in and back out.
+        grid.refreshItems(); grid.layout(split)
         notifyResize()
       },
       end(ev) {
@@ -475,7 +508,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     },
     modifiers: [
       interact.modifiers.restrictSize({
-        min: {width: 100, height: 50}
+        min: {width: MIN_TILE_WIDTH, height: 50}
       }),
       interact.modifiers.snapEdges({
         offset: "parent",
@@ -497,8 +530,13 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
               xs.push(box.right - gridBox.left + itemMargin.right - margin.right)
               ys.push(box.bottom - gridBox.top + itemMargin.bottom - margin.bottom)
             }
-            // Filling the row's remaining space is the strongest horizontal target.
-            const fill = plan ? plan.left + plan.fill - margin.right : null
+            // Filling the row's remaining space is the strongest horizontal target,
+            // unless the row is split: then it is an ordinary target, and none in a full row.
+            let fill = plan ? plan.left + plan.fill - margin.right : null
+            if (plan?.split) {
+              if (!plan.split.full) { xs.push(fill) }
+              fill = null
+            }
             const {top} = resized.getPosition()
             const width = gridWidth(grid)
             const columns = model.columns > 0 ? width / model.columns : null

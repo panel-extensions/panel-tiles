@@ -18,7 +18,8 @@ from panel_tiles import TileGrid
 | `fill_gaps` | `bool` | `True` | Whether Muuri should fill gaps in the grid layout when items are different sizes. |
 | `local_save` | `bool` | `False` | Persist user layout changes to `localStorage` so they survive page refreshes. Requires `name` to be set for unique identification. |
 | `min_col_width` | `int` | `None` | Minimum tile width in pixels. When the container is too narrow for a tile at its authored percentage, the tile is responsively widened. The persisted layout is unaffected. |
-| `overflow_tolerance` | `int` | `56` | How far in pixels a tile may be dragged past the end of its row while resizing before the row reflows. Within this distance the tile snaps to fill the remaining row space exactly. `0` reflows as soon as the row overflows. |
+| `overflow_tolerance` | `int` | `56` | How far in pixels a tile may be dragged past the end of its row while resizing before the row reflows. Within this distance the tile snaps to fill the remaining row space exactly. `0` reflows as soon as the row overflows. Does not apply to resizes that split a row with a neighbour (see `row_resize`). |
+| `row_resize` | `"split" \| "wrap"` | `"split"` | How resizing a tile's width treats its neighbours when `layout_mode="rows"`. `"split"` moves the boundary with the tile flush against its right edge, so the neighbour shrinks or grows and the row stays full; the last tile in a row still overflows. `"wrap"` lets the tile grow past the row end and reflows the row on release. No effect in masonry mode. |
 | `name` | `str` | `""` | Unique identifier for the grid, used as the `localStorage` key when `local_save=True`. Required when multiple grids exist on the same page. |
 | `responsive_layouts` | `dict` | `{}` | Dict mapping breakpoint labels (e.g. `"xs"`, `"sm"`, `"md"`) to layout lists. Auto-populated as users arrange tiles at different breakpoint views. Can also be set programmatically. |
 
