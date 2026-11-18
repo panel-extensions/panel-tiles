@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 pytest.importorskip("playwright")
@@ -316,7 +318,9 @@ def test_rows_split_stops_at_the_neighbours_minimum_width(page):
     grid, items = serve_grid(page, SPLIT_ROW, layout_mode="rows")
     before = boxes_of(page, items)
     x, y = press_resize_handle(page, items.nth(0))
-    page.mouse.move(x + 600, y, steps=10)
+    # Short of the row end, which would reflow the row instead.
+    page.mouse.move(x + 330, y, steps=10)
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "split")
     page.mouse.up()
 
     wait_until(lambda: grid.layout[1]["width"] != 40, page)
@@ -325,6 +329,27 @@ def test_rows_split_stops_at_the_neighbours_minimum_width(page):
     # 100px border box plus its margins.
     assert after[1]["width"] == pytest.approx(100, abs=1)
     assert grid.layout[0]["width"] + grid.layout[1]["width"] <= 100
+
+
+def test_rows_split_reflows_when_pulled_to_the_row_end(page):
+    grid, items = serve_grid(page, SPLIT_ROW, layout_mode="rows")
+    before = boxes_of(page, items)
+    x, y = press_resize_handle(page, items.nth(0))
+    page.mouse.move(x + 450, y, steps=15)
+
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "overflow")
+    expect(page.locator(".muuri-resize-ghost")).to_be_visible()
+    expect(items.nth(1)).to_have_class(re.compile("muuri-will-move"))
+    expect(items.nth(2)).not_to_have_class(re.compile("muuri-will-move"))
+    # Nothing reflows until release.
+    assert settled_box(page, items.nth(1))["y"] == before[1]["y"]
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[0]["width"] > 99, page)
+    assert grid.layout[1]["width"] == 40
+    after = boxes_of(page, items)
+    assert after[1]["y"] > before[1]["y"]
+    assert after[1]["width"] == pytest.approx(before[1]["width"], abs=0.5)
 
 
 def test_rows_split_grows_into_spare_room_first(page):

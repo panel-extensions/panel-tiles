@@ -316,7 +316,8 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
   function applySplit(plan, decision, width) {
     const {split} = plan
     const base = split.full ? plan.widths[plan.index] : widthPercent(split.base, gridWidth(grid))
-    const shift = decision.state === "split" ? width - base : 0
+    // While an overflow is pending the neighbours stay at the width they were held at.
+    const shift = decision.shift ? width - base : 0
     for (const {index} of split.neighbors) {
       const el = plan.elements[index]
       const pct = shift ? Math.floor((plan.widths[index] - shift) * 1e4) / 1e4 : plan.widths[index]
@@ -493,9 +494,12 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
         state.interacting = false
         interaction = null
         const decision = resizeStart?.el === ev.target ? resizeStart.decision : null
+        const plan = decision ? resizeStart.plan : null
         resizeStart = null
         clearResizeState()
         if (decision?.state === "overflow") {
+          // Neighbours moving to the next row keep the widths they started with.
+          if (plan.split) { applySplit(plan, {shift: 0}, 0) }
           setAuthoredWidth(ev.target, clampWidthForItem(grid, ev.target, widthPercent(decision.final, gridWidth(grid))))
           applyDisplayWidth(grid, ev.target, minColWidth())
         }
@@ -535,6 +539,8 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
             let fill = plan ? plan.left + plan.fill - margin.right : null
             if (plan?.split) {
               if (!plan.split.full) { xs.push(fill) }
+              // Reaching the row end takes the whole row.
+              xs.push(plan.limit - margin.right)
               fill = null
             }
             const {top} = resized.getPosition()

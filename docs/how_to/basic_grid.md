@@ -60,4 +60,4 @@ grid = TileGrid(objects=[...], overflow_tolerance=80)
 
 Set `overflow_tolerance=0` to reflow as soon as the row overflows.
 
-In [rows mode](row_layout.md#resizing-within-a-row) a tile with a neighbour to its right moves the boundary between them instead, so the neighbour shrinks or grows and the row never reflows.
+In [rows mode](row_layout.md#resizing-within-a-row) a tile with a neighbour to its right moves the boundary between them instead, so the neighbour shrinks or grows. The row only reflows if you pull the edge all the way to its end.

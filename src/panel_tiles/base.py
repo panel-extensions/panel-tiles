@@ -90,7 +90,9 @@ class TileGrid(JSComponent, ListLike):
         the tile flush against its right edge, like a split pane: once the
         row is full the neighbour shrinks as the tile grows, and in a full
         row it grows as the tile narrows. The resize stops where the
-        neighbour would pass its minimum width. A tile with no neighbour to
+        neighbour would pass its minimum width, and pulling the edge all the
+        way to the row end makes the tile take the whole row, moving the
+        tiles after it to the next row on release. A tile with no neighbour to
         its right, such as the last one in a row, resizes as in "wrap".
         "wrap" lets the tile grow past the end of its row, so the tiles that
         no longer fit move to the next row on release (see

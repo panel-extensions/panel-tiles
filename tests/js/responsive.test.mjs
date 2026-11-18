@@ -559,3 +559,24 @@ test("resolveRowSplit shrinks tiles stacked beside the resized one together", ()
   assert.deepEqual(plan.split.neighbors.map(n => n.index), [1, 3])
   assert.deepEqual(resolveRowSplit(plan, plan.fill + 60).neighbors, [{index: 1, width: 240}, {index: 3, width: 240}])
 })
+
+test("resolveRowSplit reflows once the tile reaches the row end", () => {
+  const plan = planRowSplit(planRowResize(FULL_ROW, 0, 1000), FULL_ROW, [120, 120, 120])
+  assert.equal(resolveRowSplit(plan, 999).state, "split")
+  assert.deepEqual(resolveRowSplit(plan, 1000), {
+    state: "overflow", width: 880, final: 1000, moving: [1], shift: 280, neighbors: [{index: 1, width: 120}],
+  })
+  assert.equal(resolveRowSplit(plan, 1200).final, 1000)
+})
+
+test("resolveRowSplit moves every tile after the resized one when it takes the row", () => {
+  const plan = planRowSplit(planRowResize(ROW, 1, 1280), ROW, [120, 120, 120, 120])
+  assert.deepEqual(resolveRowSplit(plan, 896), {...resolveRowSplit(plan, plan.fill + 200), state: "overflow", final: 896, moving: [2]})
+})
+
+test("resolveRowSplit holds instead of reflowing when the tile cannot reach the row end", () => {
+  const plan = planRowSplit(planRowResize(FULL_ROW, 0, 1000), FULL_ROW, [120, 120, 120], [900, Infinity, Infinity])
+  assert.equal(plan.split.reflow, false)
+  assert.deepEqual(resolveRowSplit(plan, 1000).state, "split")
+  assert.equal(resolveRowSplit(plan, 1000).width, 880)
+})

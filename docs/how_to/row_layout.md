@@ -54,6 +54,7 @@ In rows mode, resizing a tile's width moves the boundary between it and the tile
 - If the row has spare room, the tile grows into it first, pushing the tiles after it along. The neighbour only starts to shrink once the row is full.
 - Tiles stacked on top of one another beside the resized tile shrink or grow together, so they stay aligned.
 - The resize stops when the neighbour reaches its minimum width (100 pixels, or the `min_width` of its content or `min_col_width` if either is larger) or its maximum width.
+- Pulling the edge all the way to the end of the row still reflows it: a dashed preview shows the tile filling the whole row and outlines the tiles that will move, and on release they move to the next row with their original widths.
 - The last tile in a row has no neighbour to its right, so widening it past the end of the row reflows the row on release, as described in [Resizing and Snapping](basic_grid.md#resizing-and-snapping).
 
 While the boundary is moving, the resized tile is outlined and a marker shows the shared edge.

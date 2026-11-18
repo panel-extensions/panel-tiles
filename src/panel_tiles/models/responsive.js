@@ -425,8 +425,10 @@ const FULL_ROW_SLACK = 1
  * between them moves instead of the row reflowing. `mins` and `maxes` are the
  * outer widths (px) each item may take. A full row splits from the tile's
  * current width; a row with spare room fills it first and splits past `fill`.
- * Returns `plan` with `split` set, or `split: null` when no tile sits flush to
- * the right of the resized one.
+ * `end` is the width at which the tile reaches the row end, where it may
+ * still take the whole row if its maximum allows (`reflow`). Returns `plan`
+ * with `split` set, or `split: null` when no tile sits flush to the right of
+ * the resized one.
  */
 export function planRowSplit(plan, items, mins = [], maxes = []) {
   const r = items[plan.index]
@@ -442,17 +444,25 @@ export function planRowSplit(plan, items, mins = [], maxes = []) {
   const shrink = full ? Math.max(0, Math.min(...neighbors.map(n => n.max - n.width))) : Infinity
   const min = Math.max(mins[plan.index] ?? 0, base - shrink)
   const max = Math.max(min, Math.min(maxes[plan.index] ?? Infinity, base + grow))
-  return {...plan, split: {neighbors, full, base, min, max}}
+  const end = plan.limit - plan.left
+  const reflow = (maxes[plan.index] ?? Infinity) >= end - PX_EPS
+  return {...plan, split: {neighbors, full, base, min, max, end, reflow}}
 }
 
 /**
  * Widths for resizing to `desired` px under a `planRowSplit` plan: below the
  * row's fill point the tile resizes freely, past it the neighbours shrink by
  * the excess, and in a full row narrowing the tile widens them. The width is
- * held where a neighbour would pass its minimum or maximum.
+ * held where a neighbour would pass its minimum or maximum. Reaching the row
+ * end overflows it instead: the tile takes the whole row on release and the
+ * tiles after it move to the next one.
  */
 export function resolveRowSplit(plan, desired) {
-  const {neighbors, full, base, min, max} = plan.split
+  const {neighbors, full, base, min, max, end, reflow} = plan.split
+  if (reflow && desired >= end - PX_EPS) {
+    const held = resolveRowSplit({...plan, split: {...plan.split, reflow: false}}, max)
+    return {...held, state: "overflow", final: end, moving: resolveRowResize(plan, end, 0).moving}
+  }
   const width = Math.min(max, Math.max(min, desired))
   const shift = width - base
   const split = shift > PX_EPS || (full && shift < -PX_EPS)
