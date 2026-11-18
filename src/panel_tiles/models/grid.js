@@ -1030,8 +1030,13 @@ export async function render({model, el, view}) {
   }
 
   function sizeFromContent(item_el, child, child_model, spec) {
-    // Measure the height at the width the tile will have.
-    if (spec?.width != null) { resizeItem(grid, item_el, spec.width, null, minColWidth(), false) }
+    // Measure the height at the width the tile will have, without a height
+    // applied from the layout.
+    if (spec?.width != null) {
+      resizeItem(grid, item_el, spec.width, null, minColWidth(), false)
+    } else {
+      item_el.style.height = ""
+    }
     const width = getInitialWidth(model, container, child, child_model, item_el)
     const height = getInitialHeight(child, child_model, item_el)
     item_el.setAttribute("data-auto-width", width.toString())
@@ -1160,13 +1165,14 @@ export async function render({model, el, view}) {
         const item_el = child_to_item.get(child)
         if (!item_el) { continue }
         const spec = currentLayout[i]
-        if (spec?.width != null && spec?.height != null) {
-          resizeToSpec(grid, item_el, spec, minColWidth())
-        } else if (isHidden()) {
+        if (isHidden()) {
           // Content has no size while the grid is hidden, so measuring now
           // would size the tile from nothing; size it once it is shown.
+          if (spec?.width != null && spec?.height != null) { resizeToSpec(grid, item_el, spec, minColWidth()) }
           unsized.set(item_el, {child, child_model: next_models[i], spec})
         } else {
+          // Measured even when the entry sets both sizes, so a later layout
+          // that leaves one out falls back to the content size.
           sizeFromContent(item_el, child, next_models[i], spec)
         }
         if (spec?.visible === false) {

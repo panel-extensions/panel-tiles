@@ -881,6 +881,26 @@ def test_grid_entry_without_height_keeps_content_height(page):
     assert_laid_out_without_overlap([first, second])
 
 
+def test_grid_layout_without_height_after_explicit_height_keeps_content_height(page):
+    grid = TileGrid(
+        objects=[stretching_tile(), Markdown("Explicit")],
+        layout=[{"width": 50, "height": 150}, {"width": 50, "height": 200}],
+        editable=False,
+        local_save=False,
+        width=600,
+    )
+    serve_component(page, grid)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(2)
+    wait_until(lambda: item_boxes(page, items)[0]["height"] == 150, page)
+
+    grid.layout = [{"width": 50}, {"width": 50, "height": 100}]
+    wait_until(lambda: item_boxes(page, items)[1]["height"] == 100, page)
+    first, second = item_boxes(page, items)
+    assert first["height"] >= 50
+    assert_laid_out_without_overlap([first, second])
+
+
 class DelayedContent(JSComponent):
     """Renders its content asynchronously and reports it through its ready promise, like a React component."""
 
