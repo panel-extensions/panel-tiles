@@ -322,12 +322,21 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     ghost.style.height = `${height}px`
   }
 
-  function clearResizeState(el) {
+  function clearResizeState() {
     delete container.dataset.resizeState
-    delete el.dataset.resizeState
-    for (const other of container.querySelectorAll(".muuri-will-move")) { other.classList.remove("muuri-will-move") }
+    for (const item of container.querySelectorAll("[data-resize-state]")) { delete item.dataset.resizeState }
+    for (const item of container.querySelectorAll(".muuri-will-move")) { item.classList.remove("muuri-will-move") }
     marker.remove()
     ghost.remove()
+  }
+
+  // Leaving edit mode mid-resize drops its feedback; an interact resize still
+  // in progress keeps the size it reached, without the row fill or overflow.
+  function reset() {
+    press = null
+    if (resizeStart?.raw) { resizeStart = null } else if (resizeStart) { resizeStart.decision = null }
+    clearResizeState()
+    container.classList.remove("muuri-no-select")
   }
 
   function sync_layout() {
@@ -349,7 +358,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
   }
 
   function onPointerMove(e) {
-    if (!press || Math.abs(e.clientX - press.x) < 1) { return }
+    if (!press || !model.editable || Math.abs(e.clientX - press.x) < 1) { return }
     press.moved = true
     const {el, plan} = press
     // Once the size changes interact's move handler takes over.
@@ -365,24 +374,29 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     showResizeState(el, decision, el.getBoundingClientRect().height)
   }
 
+  // A cancelled press, or one whose pointer capture was lost, ends like a release.
   function onPointerUp() {
     if (resizeStart?.raw && !state.interacting) {
-      clearResizeState(resizeStart.el)
+      clearResizeState()
       resizeStart = null
     }
     press = null
   }
 
-  window.addEventListener("pointerdown", onPointerDown, true)
-  window.addEventListener("pointermove", onPointerMove, true)
-  window.addEventListener("pointerup", onPointerUp, true)
+  const pointerListeners = {
+    pointerdown: onPointerDown, pointermove: onPointerMove,
+    pointerup: onPointerUp, pointercancel: onPointerUp, lostpointercapture: onPointerUp,
+  }
+  for (const [type, listener] of Object.entries(pointerListeners)) { window.addEventListener(type, listener, true) }
+  // Scoped to this grid: a selector interactable is shared page-wide, so the
+  // last grid rendered would otherwise handle every grid's resizes.
+  const resizable = interact(".muuri-grid-item", {context: container})
   model.on("remove", () => {
-    window.removeEventListener("pointerdown", onPointerDown, true)
-    window.removeEventListener("pointermove", onPointerMove, true)
-    window.removeEventListener("pointerup", onPointerUp, true)
+    for (const [type, listener] of Object.entries(pointerListeners)) { window.removeEventListener(type, listener, true) }
+    resizable.unset()
   })
 
-  interact(".muuri-grid-item").resizable({
+  resizable.resizable({
     edges: {right: ".muuri-handle.resize", bottom: ".muuri-handle.resize"},
     listeners: {
       start(event) {
@@ -413,7 +427,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
         let outer = ev.rect.width + left + right
         // The pointer, not the snapped rect, tells a sideways drag from a height-only one:
         // a tile already filling its row snaps straight back to its own width.
-        if (ours && resizeStart.plan && press?.el === ev.target && press.moved) {
+        if (ours && resizeStart.plan && press?.el === ev.target && press.moved && model.editable) {
           const decision = resolveRowResize(resizeStart.plan, outer, tolerance())
           resizeStart.decision = decision
           outer = decision.width
@@ -431,7 +445,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
         state.interacting = false
         const decision = resizeStart?.el === ev.target ? resizeStart.decision : null
         resizeStart = null
-        clearResizeState(ev.target)
+        clearResizeState()
         if (decision?.state === "overflow") {
           setAuthoredWidth(ev.target, clampWidthForItem(grid, ev.target, widthPercent(decision.final, gridWidth(grid))))
           applyDisplayWidth(grid, ev.target, minColWidth())
@@ -500,7 +514,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
       container.classList.remove("muuri-no-select")
       sync_layout()
     })
-  return sync_layout
+  return {sync: sync_layout, reset}
 }
 
 function createBreakpointToolbar(breakpoints, container, onSelect, onReset) {
@@ -580,7 +594,6 @@ export async function render({model, el, view}) {
   applyElevation(model.elevation)
   model.on("elevation", () => applyElevation(model.elevation))
   model.on("card", () => container.classList.toggle("muuri-no-card", !model.card))
-  model.on("editable", () => container.classList.toggle("muuri-no-handles", !model.editable))
 
   let nextId = 0
   const ids = []
@@ -898,10 +911,12 @@ export async function render({model, el, view}) {
   container.addEventListener("focusin", selectFromEvent, true)
   model.on("selected", showSelected)
 
-  let sync = null
-  if (model.editable) {
-    sync = make_editable(model, container, grid, state, commitEdit, onSelect)
-  }
+  const editing = model.editable ? make_editable(model, container, grid, state, commitEdit, onSelect) : null
+  const sync = editing?.sync
+  model.on("editable", () => {
+    container.classList.toggle("muuri-no-handles", !model.editable)
+    if (!model.editable) { editing?.reset() }
+  })
 
   function applyLayoutToGrid(layout) {
     if (!layout || !layout.length || !ids.length) { return }

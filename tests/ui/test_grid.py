@@ -806,6 +806,65 @@ def test_grid_resize_beside_stacked_tiles_shows_overflow(page, layout_mode):
     wait_until(lambda: grid.layout[0]["width"] > 40, page)
 
 
+EDIT_STATE = """grid => [...grid.querySelectorAll(":scope > .muuri-grid-item")].map(el => ({
+  outline: getComputedStyle(el).outlineStyle,
+  resizeState: el.dataset.resizeState ?? null,
+  willMove: el.classList.contains("muuri-will-move"),
+}))"""
+
+
+def assert_no_edit_state(page):
+    grid_el = page.locator(".muuri-grid")
+    expect(grid_el).not_to_have_attribute("data-resize-state", re.compile(".*"))
+    expect(page.locator(".muuri-resize-ghost")).to_have_count(0)
+    expect(page.locator(".muuri-row-marker")).to_have_count(0)
+    for item in grid_el.evaluate(EDIT_STATE):
+        assert item == {"outline": "none", "resizeState": None, "willMove": False}
+
+
+def cancel_pointer(page):
+    page.locator(".muuri-grid").evaluate("() => document.dispatchEvent(new PointerEvent('pointercancel', {pointerId: 1, pointerType: 'mouse', bubbles: true}))")
+
+
+@pytest.mark.parametrize("overshoot", [30, 160], ids=["fill", "overflow"])
+@pytest.mark.parametrize("end", ["cancel", "hold"])
+def test_grid_leaving_edit_mode_clears_resize_feedback(page, end, overshoot):
+    grid, items = serve_row_grid(page)
+    drag_past_row_end(page, items, overshoot)
+    expect(page.locator(".muuri-grid")).to_have_attribute("data-resize-state", "fill" if overshoot == 30 else "overflow")
+
+    if end == "cancel":
+        cancel_pointer(page)
+    grid.editable = False
+
+    expect(page.locator(".muuri-grid")).to_have_class(re.compile("muuri-no-handles"))
+    assert grid.selected == 1
+    assert_no_edit_state(page)
+    page.mouse.up()
+    assert_no_edit_state(page)
+
+
+def test_grid_resizes_in_each_of_two_grids(page):
+    grids = [
+        TileGrid(objects=[Markdown(name) for name in ("Map", "Weights", "Tuning")], layout=ROW_LAYOUT, local_save=False, width=1000, height=200) for _ in range(2)
+    ]
+    msgs, _ = serve_component(page, Column(*grids))
+    for grid, grid_el in zip(grids, page.locator(".muuri-grid").all(), strict=False):
+        items = grid_el.locator(":scope > .muuri-grid-item")
+        expect(items).to_have_count(3)
+        wait_until(lambda items=items: items.nth(2).evaluate("el => el.style.height") == "120px", page)
+        drag_handle(page, items.nth(0), 0, 100)
+        wait_until(lambda grid=grid: grid.layout[0]["height"] > 180, page)
+    assert [msg for msg in msgs if msg.type == "error"] == []
+
+
+def test_grid_tile_padding_variable(page):
+    grid = TileGrid(objects=[Markdown("A")], local_save=False, width=400, stylesheets=[":host { --tile-padding: 12px; }"])
+    serve_component(page, grid)
+
+    expect(page.locator(".muuri-grid-item")).to_have_css("padding", "12px")
+
+
 def item_boxes(page, items):
     page.wait_for_timeout(500)
     return [settled_box(page, items.nth(i)) for i in range(items.count())]
