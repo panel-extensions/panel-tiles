@@ -770,10 +770,7 @@ export async function render({model, el, view}) {
         const min = Math.max(model.min_col_width || 0, parseFloat(itemEl?.getAttribute("data-min-width")) || 0)
         minWidths[i] = (min / width) * 100
       }
-      // A previewed band wider than the container shows its layout scaled
-      // down, rather than wrapping rows that have no room for their minimums.
-      const scale = layoutWidth() > width + 0.5
-      const fitted = fitRows(layout, {minWidths, packing: model.layout_mode, scale})
+      const fitted = fitRows(layout, {minWidths, packing: model.layout_mode})
       for (let i = 0; i < ids.length; i++) {
         const itemEl = itemElement(i)
         if (!itemEl) { continue }

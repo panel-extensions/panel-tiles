@@ -564,34 +564,30 @@ function minPercent(node, mins) {
  * `mins`, within `room`. Children below their minimum are raised to it, and
  * when the row then needs more than `room` the excess comes out of the
  * others' width above their own minimum. A row without that much to give
- * overflows, unless `scale` is set: it then takes `room` and its children
- * divide it in proportion to the widths they need.
+ * keeps every child at its minimum and overflows, so it wraps.
  */
-function squeezeRow(shares, mins, room, scale) {
+function squeezeRow(shares, mins, room) {
   const needed = shares.map((s, i) => Math.max(s, mins[i]))
-  const total = needed.reduce((a, b) => a + b, 0)
-  const excess = total - room
+  const excess = needed.reduce((a, b) => a + b, 0) - room
   if (excess <= PCT_EPS) { return needed }
   const slack = needed.reduce((sum, n, i) => sum + n - mins[i], 0)
-  if (slack + PCT_EPS >= excess) {
-    return needed.map((n, i) => n - (excess * (n - mins[i])) / slack)
-  }
-  return scale ? needed.map(n => (n * room) / total) : needed
+  if (slack + PCT_EPS < excess) { return needed }
+  return needed.map((n, i) => n - (excess * (n - mins[i])) / slack)
 }
 
 /** Fit `node` to `target` percent, with up to `room` percent free to its right edge. */
-function fitShares(node, target, room, mins, scale, out) {
+function fitShares(node, target, room, mins, out) {
   if (node.type === "leaf") {
     out[node.item.key] = Math.max(target, Math.min(room, minPercent(node, mins)))
     return
   }
   const authored = node.children.map(c => (target * c.nat) / node.nat)
   if (node.type === "stack") {
-    node.children.forEach((child, i) => fitShares(child, authored[i], room, mins, scale, out))
+    node.children.forEach((child, i) => fitShares(child, authored[i], room, mins, out))
     return
   }
-  const shares = squeezeRow(authored, node.children.map(c => minPercent(c, mins)), room, scale)
-  node.children.forEach((child, i) => fitShares(child, shares[i], shares[i], mins, scale, out))
+  const shares = squeezeRow(authored, node.children.map(c => minPercent(c, mins)), room)
+  node.children.forEach((child, i) => fitShares(child, shares[i], shares[i], mins, out))
 }
 
 /**
@@ -599,13 +595,12 @@ function fitShares(node, target, room, mins, scale, out) {
  * `layout` together when tiles must be at least `minWidths` percent wide.
  * A tile below its minimum is widened and, where its row then runs past the
  * container, the room comes out of its row neighbours down to their own
- * minimums. A row without that much room overflows, as widening each tile
- * alone would, unless `scale` is set: its tiles then divide the container
- * in proportion to the widths they need. Returns a width per layout entry,
- * null where a tile shows at max(authored, minimum) anyway, or null when
- * no tile changes.
+ * minimums. A row without that much room is left to overflow and wrap, as
+ * widening each tile alone would; no tile is made narrower than its
+ * minimum. Returns a width per layout entry, null where a tile shows at
+ * max(authored, minimum) anyway, or null when no tile changes.
  */
-export function fitRows(layout, {minWidths = [], heights = [], packing = "masonry", scale = false} = {}) {
+export function fitRows(layout, {minWidths = [], heights = [], packing = "masonry"} = {}) {
   const visible = []
   layout.forEach((spec, i) => {
     if (spec && spec.visible !== false) { visible.push({spec, i}) }
@@ -625,7 +620,7 @@ export function fitRows(layout, {minWidths = [], heights = [], packing = "masonr
   })
   const tree = buildTree(items)
   const fitted = []
-  fitShares({type: "stack", children: [tree], nat: 100}, 100, 100, minWidths, scale, fitted)
+  fitShares({type: "stack", children: [tree], nat: 100}, 100, 100, minWidths, fitted)
   const result = layout.map((spec, i) => {
     if (fitted[i] == null) { return null }
     const authored = Math.min(100, spec.width ?? 100)

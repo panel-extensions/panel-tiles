@@ -929,7 +929,7 @@ def test_preview_band_wider_than_grid_keeps_rows_together(page):
     assert [entry["width"] for entry in grid.layout] == [75, 25, 50, 50]
 
 
-def test_preview_band_wider_than_grid_scales_rows_without_room(page):
+def test_preview_band_wider_than_grid_wraps_rows_without_room(page):
     grid = _heading_kpi_grid(500, preview_band="md", editable=True)
 
     serve_component(page, grid)
@@ -939,8 +939,11 @@ def test_preview_band_wider_than_grid_scales_rows_without_room(page):
     wait_until(lambda: items.nth(1).evaluate("el => el.style.height") == "120px", page)
     boxes = _settled_boxes(page)
 
-    # Previewing Desktop scales its rows down rather than wrapping them.
-    assert _same_row(boxes, 0, 1)
+    # The heading and KPI need 660px together, so the KPI wraps at its minimum
+    # rather than either being squeezed below it; the half-width row still fits.
+    assert boxes[1]["top"] > boxes[0]["top"]
+    assert boxes[0]["right"] - boxes[0]["left"] >= 360 - 20 - 1
+    assert boxes[1]["right"] - boxes[1]["left"] >= 300 - 20 - 1
     assert _same_row(boxes, 2, 3)
     assert max(box["right"] for box in boxes) <= boxes[0]["container"] + 0.5
     assert data_widths(items) == ["75", "25", "50", "50"]

@@ -106,7 +106,7 @@ grid = TileGrid(
 
 The previewed band, not the grid's actual width, decides where edits go. Previewing the base band on a grid narrower than that band still edits `layout` and keeps `reference_width` inside the base band, so a sidebar squeezing the grid never turns desktop edits into a tablet layout.
 
-Such a grid shows the band's layout scaled down to its width rather than wrapped, so the rows being edited are the rows of that band. A tile that would be narrower than its minimum width takes the difference from the other tiles in its row, and a row without enough room for every minimum shares the grid's width in proportion to the widths its tiles need. Only the displayed widths change; `layout` keeps the authored ones.
+Such a grid shows the band's layout at its own width with the authored percentages, so the rows being edited are the rows of that band. A tile that would be narrower than its minimum width takes the difference from the other tiles in its row, down to their own minimums. A row without room for every minimum wraps, since no tile is shown narrower than its minimum. Only the displayed widths change; `layout` keeps the authored ones.
 
 ## Persisting Responsive Layouts
 

@@ -613,17 +613,15 @@ test("fitRows squeezes a row down to every tile's minimum before it overflows", 
   assert.ok(widths.reduce((a, b) => a + b) <= 100)
 })
 
-test("fitRows overflows a row without room unless it scales", () => {
+test("fitRows never narrows a tile below its minimum, leaving a row without room to wrap", () => {
   const layout = tiles([25], [25], [25], [25])
-  const mins = [41, 41, 41, 41]
-  assert.equal(fitRows(layout, {minWidths: mins}), null)
-  assert.deepEqual(fitRows(layout, {minWidths: mins, scale: true}), [25, 25, 25, 25])
-
-  const uneven = tiles([75], [25])
-  const scaled = shown(uneven, fitRows(uneven, {minWidths: [74, 61], scale: true}), [74, 61])
-  assert.ok(scaled[0] + scaled[1] <= 100)
-  // The tiles divide the row in proportion to the widths they need.
-  assert.ok(Math.abs(scaled[0] / scaled[1] - 75 / 61) < 0.01)
+  assert.equal(fitRows(layout, {minWidths: [41, 41, 41, 41]}), null)
+  // One row fits by squeezing, the other has no room and is left alone.
+  const mixed = tiles([75], [25], [50], [50])
+  const mins = [40, 30, 61, 61]
+  const fitted = fitRows(mixed, {minWidths: mins})
+  assert.deepEqual([fitted[1], fitted[2], fitted[3]], [null, null, null])
+  assert.ok(fitted[0] < 70.01 && fitted[0] >= 40)
 })
 
 test("fitRows narrows a stacked column beside a tall tile together", () => {
