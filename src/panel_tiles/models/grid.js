@@ -3,8 +3,8 @@ import Muuri from "https://esm.sh/muuri@0.9.5"
 import interact from "https://esm.sh/interactjs@1.10.27"
 
 import {
-  DEFAULT_REFERENCE_WIDTH, bandWidth, dragProbe, dropTarget, moveIndex, packRows, planRowResize, planRowSplit, resolveLayout,
-  resolveRowResize, resolveRowSplit, snapEdge, widthPercent,
+  DEFAULT_REFERENCE_WIDTH, bandWidth, dragProbe, dropTarget, fitRows, moveIndex, packRows, planRowResize, planRowSplit,
+  resolveLayout, resolveRowResize, resolveRowSplit, snapEdge, widthPercent,
 } from "./responsive.js"
 
 function getLSKey(name) {
@@ -79,6 +79,7 @@ function gridWidth(grid) {
 function setAuthoredWidth(el, width) {
   width = Math.min(100, Math.max(width, 1))
   el.setAttribute("data-width", width.toString())
+  el.removeAttribute("data-fit-width")
 }
 
 function clampWidthForItem(grid, el, width) {
@@ -98,14 +99,16 @@ function clampWidthForItem(grid, el, width) {
   return width
 }
 
+// A width fitted to the tile's row (see `fitRows`) replaces raising the tile
+// to its minimum on its own, which would push the row past the container.
 function applyDisplayWidth(grid, el, minColWidth) {
   const containerWidth = gridWidth(grid)
-  const authored = parseFloat(el.getAttribute("data-width")) || 100
-  let display = authored
+  const fitted = parseFloat(el.getAttribute("data-fit-width"))
+  let display = fitted || parseFloat(el.getAttribute("data-width")) || 100
   if (containerWidth > 0) {
     const itemMin = parseFloat(el.getAttribute("data-min-width")) || 0
     const effectiveMin = Math.max(minColWidth || 0, itemMin)
-    if (effectiveMin > 0) {
+    if (effectiveMin > 0 && !fitted) {
       const minPct = (effectiveMin / containerWidth) * 100
       if (display < minPct) { display = Math.min(100, minPct) }
     }
@@ -115,7 +118,10 @@ function applyDisplayWidth(grid, el, minColWidth) {
       if (display > maxPct) { display = maxPct }
     }
   }
-  el.style.width = `calc(${display}% - 20px)`
+  const width = `calc(${display}% - 20px)`
+  if (el.style.width === width) { return false }
+  el.style.width = width
+  return true
 }
 
 // A layout entry may leave out a tile's width or height; the tile then keeps
@@ -132,6 +138,10 @@ function resizeItem(grid, el, width, height, minColWidth, notify=true) {
   applyDisplayWidth(grid, el, minColWidth)
   if (height == null) { el.style.height = "" } else { el.style.height = `${height}px` }
   if (notify) { grid.refreshItems(); grid.layout() }
+}
+
+function restoreFit(el, fit) {
+  if (fit != null) { el.setAttribute("data-fit-width", fit) }
 }
 
 function parsePixelValue(value) {
@@ -308,7 +318,8 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     }
     const elements = items.map(item => item.getElement())
     const widths = elements.map(el => parseFloat(el.getAttribute("data-width")) || 100)
-    return {...plan, top: boxes[index].top, elements, widths}
+    const fits = elements.map(el => el.getAttribute("data-fit-width"))
+    return {...plan, top: boxes[index].top, elements, widths, fits}
   }
 
   // The neighbours take the width the resized tile gives up or gains past its
@@ -322,6 +333,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
       const el = plan.elements[index]
       const pct = shift ? Math.floor((plan.widths[index] - shift) * 1e4) / 1e4 : plan.widths[index]
       setAuthoredWidth(el, pct)
+      if (!shift) { restoreFit(el, plan.fits[index]) }
       applyDisplayWidth(grid, el, minColWidth())
     }
   }
@@ -451,7 +463,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
         onSelect(el)
         resizeStart = {
           el, rectWidth: event.rect.width, width: parseFloat(el.getAttribute("data-width")) || 100,
-          plan: press?.el === el ? press.plan : rowPlan(el), decision: null,
+          fit: el.getAttribute("data-fit-width"), plan: press?.el === el ? press.plan : rowPlan(el), decision: null,
         }
         const item = grid.getItem(el);
         let height = el.style.height.slice(null, -2);
@@ -483,7 +495,15 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
         const unchanged = ours && Math.abs(outer - left - right - resizeStart.rectWidth) < 0.5
         const w = unchanged ? resizeStart.width : clampWidthForItem(grid, ev.target, widthPercent(outer, gridWidth(grid)))
         ev.target.style.zIndex = 100
-        resizeItem(grid, ev.target, w, h, minColWidth(), false)
+        if (unchanged) {
+          // Back at its starting width, a tile fitted to its row keeps that fit, so the row stays together.
+          setAuthoredWidth(ev.target, w)
+          restoreFit(ev.target, resizeStart.fit)
+          applyDisplayWidth(grid, ev.target, minColWidth())
+          ev.target.style.height = `${h}px`
+        } else {
+          resizeItem(grid, ev.target, w, h, minColWidth(), false)
+        }
         const split = ours && !!resizeStart.plan?.split
         if (split && resizeStart.decision) { applySplit(resizeStart.plan, resizeStart.decision, w) }
         // A neighbour's width applies at once, so an animated move would let its right edge swing in and back out.
@@ -750,13 +770,43 @@ export async function render({model, el, view}) {
 
   const minColWidth = () => model.min_col_width || null
 
-  function reclampAll() {
-    if (!model.min_col_width) { return }
-    for (const item of grid.getItems()) {
-      applyDisplayWidth(grid, item.getElement(), minColWidth())
+  // Fits tile widths to their rows at the current container width and
+  // returns whether any tile's displayed width changed.
+  function fitDisplayWidths() {
+    const items = grid.getItems()
+    const width = gridWidth(grid)
+    if (!items.length || !(width > 0)) { return false }
+    if (!state.interacting) {
+      const layout = exportLayout(grid, ids)
+      const minWidths = []
+      for (let i = 0; i < ids.length; i++) {
+        const itemEl = itemElement(i)
+        const min = Math.max(model.min_col_width || 0, parseFloat(itemEl?.getAttribute("data-min-width")) || 0)
+        minWidths[i] = (min / width) * 100
+      }
+      const fitted = fitRows(layout, {minWidths, packing: model.layout_mode})
+      for (let i = 0; i < ids.length; i++) {
+        const itemEl = itemElement(i)
+        if (!itemEl) { continue }
+        if (fitted?.[i] == null) {
+          itemEl.removeAttribute("data-fit-width")
+        } else {
+          itemEl.setAttribute("data-fit-width", fitted[i].toString())
+        }
+      }
     }
-    grid.refreshItems()
-    grid.layout()
+    let changed = false
+    for (const item of items) {
+      changed = applyDisplayWidth(grid, item.getElement(), minColWidth()) || changed
+    }
+    return changed
+  }
+
+  function reclampAll() {
+    if (fitDisplayWidths()) {
+      grid.refreshItems()
+      grid.layout()
+    }
   }
 
   const flags = {layout_from_client: false, responsive_from_client: false}
@@ -926,6 +976,7 @@ export async function render({model, el, view}) {
     }
     displayed = {band, source: editsBase ? "base" : "custom", sig: JSON.stringify(layout)}
     updateToolbar()
+    reclampAll()
   }
 
   function resetOverride() {
@@ -1005,6 +1056,7 @@ export async function render({model, el, view}) {
         const item = itemEl && grid.getItem(itemEl)
         if (item) { grid.move(item, index, {layout: false}) }
       }
+      fitDisplayWidths()
       grid.refreshItems()
       grid.layout()
     } finally {
@@ -1258,6 +1310,7 @@ export async function render({model, el, view}) {
 
       grid.refreshSortData()
       grid.sort("id", {layout: false})
+      fitDisplayWidths()
       grid.refreshItems()
       grid.layout()
       // Resolve before revealing new tiles so narrow screens never flash the base layout.

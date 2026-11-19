@@ -162,7 +162,8 @@ class TileGrid(JSComponent, ListLike):
         doc="""
         Minimum tile width in pixels. When the container is too narrow
         for a tile at its authored percentage, the tile is responsively
-        widened to prevent overflow. The persisted layout is unaffected.""",
+        widened to prevent overflow, taking the room from the other tiles
+        in its row where they have it. The persisted layout is unaffected.""",
     )
 
     layout = param.List(

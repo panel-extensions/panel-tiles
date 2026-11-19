@@ -553,6 +553,85 @@ export function generateLayout(layout, {width, referenceWidth, shrink = 0.5, min
   return {layout: result, changed: true}
 }
 
+function minPercent(node, mins) {
+  if (node.type === "leaf") { return Math.min(100, mins[node.item.key] || 0) }
+  const own = node.children.map(c => minPercent(c, mins))
+  return node.type === "row" ? own.reduce((a, b) => a + b, 0) : Math.max(...own)
+}
+
+/**
+ * Shares for the children of a row given their authored `shares` and their
+ * `mins`, within `room`. Children below their minimum are raised to it, and
+ * when the row then needs more than `room` the excess comes out of the
+ * others' width above their own minimum. A row without that much to give
+ * keeps every child at its minimum and overflows, so it wraps.
+ */
+function squeezeRow(shares, mins, room) {
+  const needed = shares.map((s, i) => Math.max(s, mins[i]))
+  const excess = needed.reduce((a, b) => a + b, 0) - room
+  if (excess <= PCT_EPS) { return needed }
+  const slack = needed.reduce((sum, n, i) => sum + n - mins[i], 0)
+  if (slack + PCT_EPS < excess) { return needed }
+  return needed.map((n, i) => n - (excess * (n - mins[i])) / slack)
+}
+
+/** Fit `node` to `target` percent, with up to `room` percent free to its right edge. */
+function fitShares(node, target, room, mins, out) {
+  if (node.type === "leaf") {
+    out[node.item.key] = Math.max(target, Math.min(room, minPercent(node, mins)))
+    return
+  }
+  const authored = node.children.map(c => (target * c.nat) / node.nat)
+  if (node.type === "stack") {
+    node.children.forEach((child, i) => fitShares(child, authored[i], room, mins, out))
+    return
+  }
+  const shares = squeezeRow(authored, node.children.map(c => minPercent(c, mins)), room)
+  node.children.forEach((child, i) => fitShares(child, shares[i], shares[i], mins, out))
+}
+
+/**
+ * Display widths, in percent of the container, that keep the rows of
+ * `layout` together when tiles must be at least `minWidths` percent wide.
+ * A tile below its minimum is widened and, where its row then runs past the
+ * container, the room comes out of its row neighbours down to their own
+ * minimums. A row without that much room is left to overflow and wrap, as
+ * widening each tile alone would; no tile is made narrower than its
+ * minimum. Returns a width per layout entry, null where a tile shows at
+ * max(authored, minimum) anyway, or null when no tile changes.
+ */
+export function fitRows(layout, {minWidths = [], heights = [], packing = "masonry"} = {}) {
+  const visible = []
+  layout.forEach((spec, i) => {
+    if (spec && spec.visible !== false) { visible.push({spec, i}) }
+  })
+  if (!visible.some(({spec, i}) => (minWidths[i] || 0) > (spec.width ?? 100) + PCT_EPS)) { return null }
+  visible.sort((a, b) => (a.spec.index ?? a.i) - (b.spec.index ?? b.i) || a.i - b.i)
+  const entries = visible.map(({spec, i}) => ({
+    key: i, width: Math.min(100, spec.width ?? 100), height: spec.height ?? heights[i] ?? DEFAULT_HEIGHT,
+  }))
+  const rects = packing === "rows"
+    ? packRows(entries, 100).rects.map((rect, n) => ({...rect, key: entries[n].key}))
+    : packLayout(entries)
+  const items = rects.map((rect, order) => {
+    const c0 = Math.min(COLUMNS - 1, Math.round(rect.x * COLUMNS / 100))
+    const c1 = Math.max(c0 + 1, Math.min(COLUMNS, Math.round((rect.x + rect.w) * COLUMNS / 100)))
+    return {key: rect.key, order, x0: rect.x, x1: rect.x + rect.w, c0, c1, y0: rect.y, y1: rect.y + rect.h}
+  })
+  const tree = buildTree(items)
+  const fitted = []
+  fitShares({type: "stack", children: [tree], nat: 100}, 100, 100, minWidths, fitted)
+  const result = layout.map((spec, i) => {
+    if (fitted[i] == null) { return null }
+    const authored = Math.min(100, spec.width ?? 100)
+    if (Math.abs(fitted[i] - Math.max(authored, Math.min(100, minWidths[i] || 0))) <= PCT_EPS) { return null }
+    if (Math.abs(fitted[i] - authored) <= PCT_EPS) { return authored }
+    // A squeezed tile stays just under its share, so a row's widths never sum past 100%.
+    return Math.max(1, Math.floor((fitted[i] - FIT_SLACK_PCT) * 1e4) / 1e4)
+  })
+  return result.some(w => w != null) ? result : null
+}
+
 /**
  * Pick the layout to display: an override for a non-base band, else the base
  * at or above its reference width, else a generated layout.

@@ -2,8 +2,9 @@ import assert from "node:assert/strict"
 import {test} from "node:test"
 
 import {
-  FIT_SLACK_PCT, SWAP_THRESHOLD, allocateColumns, balancedPartition, bandWidth, dragProbe, dropTarget, generateLayout, moveIndex,
-  packLayout, packRows, planRowResize, planRowSplit, resolveLayout, resolveRowResize, resolveRowSplit, snapEdge, widthPercent,
+  FIT_SLACK_PCT, SWAP_THRESHOLD, allocateColumns, balancedPartition, bandWidth, dragProbe, dropTarget, fitRows, generateLayout,
+  moveIndex, packLayout, packRows, planRowResize, planRowSplit, resolveLayout, resolveRowResize, resolveRowSplit, snapEdge,
+  widthPercent,
 } from "../../src/panel_tiles/models/responsive.js"
 
 const REF = 1400
@@ -579,4 +580,71 @@ test("resolveRowSplit holds instead of reflowing when the tile cannot reach the 
   assert.equal(plan.split.reflow, false)
   assert.deepEqual(resolveRowSplit(plan, 1000).state, "split")
   assert.equal(resolveRowSplit(plan, 1000).width, 880)
+})
+
+// Displayed width of each tile: its fitted width, else its authored width raised to its minimum.
+function shown(layout, fitted, mins) {
+  return layout.map((spec, i) => fitted?.[i] ?? Math.max(spec.width, mins[i] || 0))
+}
+
+test("fitRows takes a tile's minimum from its row neighbours", () => {
+  const layout = tiles([75, 460], [25, 460], [50, 300], [50, 300])
+  const mins = [360 / 10.4, 300 / 10.4, 0, 0]
+  const fitted = fitRows(layout, {minWidths: mins})
+  const widths = shown(layout, fitted, mins)
+  assert.ok(widths[0] + widths[1] <= 100)
+  assert.ok(Math.abs(widths[1] - 300 / 10.4) < 0.01)
+  assert.ok(widths[0] < 75 && widths[0] > 70)
+  // Only the squeezed neighbour needs a fitted width; the other rows keep theirs.
+  assert.deepEqual([fitted[1], fitted[2], fitted[3]], [null, null, null])
+})
+
+test("fitRows leaves rows that have room for their minimums", () => {
+  assert.equal(fitRows(tiles([25], [25]), {minWidths: [40, 40]}), null)
+  assert.equal(fitRows(tiles([30], [30]), {minWidths: [66.67, 0]}), null)
+  assert.equal(fitRows(tiles([50], [50]), {minWidths: [20, 20]}), null)
+})
+
+test("fitRows squeezes a row down to every tile's minimum before it overflows", () => {
+  const layout = tiles([60], [20], [20])
+  const mins = [50, 30, 0]
+  const widths = shown(layout, fitRows(layout, {minWidths: mins}), mins)
+  assert.ok(widths[0] >= 50 && widths[1] >= 30 - FIT_SLACK_PCT)
+  assert.ok(widths.reduce((a, b) => a + b) <= 100)
+})
+
+test("fitRows never narrows a tile below its minimum, leaving a row without room to wrap", () => {
+  const layout = tiles([25], [25], [25], [25])
+  assert.equal(fitRows(layout, {minWidths: [41, 41, 41, 41]}), null)
+  // One row fits by squeezing, the other has no room and is left alone.
+  const mixed = tiles([75], [25], [50], [50])
+  const mins = [40, 30, 61, 61]
+  const fitted = fitRows(mixed, {minWidths: mins})
+  assert.deepEqual([fitted[1], fitted[2], fitted[3]], [null, null, null])
+  assert.ok(fitted[0] < 70.01 && fitted[0] >= 40)
+})
+
+test("fitRows narrows a stacked column beside a tall tile together", () => {
+  const layout = tiles([66.67, 400], [33.33, 200], [33.33, 200])
+  const mins = [0, 40, 0]
+  const widths = shown(layout, fitRows(layout, {minWidths: mins}), mins)
+  assert.ok(widths[0] + widths[1] <= 100 && widths[0] + widths[2] <= 100)
+  assert.ok(Math.abs(widths[1] - widths[2]) < 0.02)
+  assert.ok(widths[1] >= 40 - FIT_SLACK_PCT)
+})
+
+test("fitRows follows rows mode packing", () => {
+  const layout = tiles([40, 300], [60, 100], [100, 100])
+  const mins = [0, 70, 0]
+  const fitted = fitRows(layout, {minWidths: mins, packing: "rows"})
+  const widths = shown(layout, fitted, mins)
+  assert.ok(widths[0] + widths[1] <= 100)
+  assert.equal(fitted[2], null)
+})
+
+test("fitRows skips hidden tiles", () => {
+  const layout = tiles([75], [25], [50, 100, {visible: false}])
+  const fitted = fitRows(layout, {minWidths: [0, 30, 80]})
+  assert.equal(fitted[2], null)
+  assert.ok(fitted[0] < 70.01)
 })
