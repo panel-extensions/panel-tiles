@@ -968,6 +968,54 @@ def test_edit_in_a_fitted_row_keeps_the_authored_widths(page):
     assert boxes[1]["right"] <= boxes[1]["container"] + 0.5
 
 
+def _hold_resize(page, item, dx, dy):
+    """Press a tile's resize handle and move it by (dx, dy), leaving the button down."""
+    handle = item.locator(".muuri-handle.resize")
+    wait_until(lambda: handle.bounding_box() is not None, page)
+    _settled_boxes(page)
+    box = handle.bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + dx, y + dy, steps=10)
+    page.wait_for_timeout(300)
+
+
+@pytest.mark.parametrize("layout_mode", ["masonry", "rows"])
+def test_height_only_drag_keeps_a_fitted_row_together(page, layout_mode):
+    grid = _heading_kpi_grid(1040, preview_band="md", editable=True, layout_mode=layout_mode)
+    serve_component(page, grid)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(4)
+    wait_until(lambda: items.nth(1).evaluate("el => el.style.height") == "120px", page)
+
+    _hold_resize(page, items.nth(0), 0, 60)
+    during = _boxes(page)
+    assert _same_row(during, 0, 1)
+    assert during[1]["right"] <= during[1]["container"] + 0.5
+    page.mouse.up()
+
+    wait_until(lambda: grid.layout[0]["height"] > 120, page)
+    assert [entry["width"] for entry in grid.layout] == [75, 25, 50, 50]
+
+
+def test_split_held_at_a_neighbours_minimum_keeps_a_fitted_row_together(page):
+    grid = _heading_kpi_grid(1040, preview_band="md", editable=True, layout_mode="rows", row_resize="split")
+    serve_component(page, grid)
+    items = page.locator(".muuri-grid-item")
+    expect(items).to_have_count(4)
+    wait_until(lambda: items.nth(1).evaluate("el => el.style.height") == "120px", page)
+
+    # The KPI is already at its minimum, so widening the heading has nothing to take.
+    _hold_resize(page, items.nth(0), 40, 0)
+    during = _boxes(page)
+    assert _same_row(during, 0, 1)
+    assert during[1]["right"] <= during[1]["container"] + 0.5
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    assert _same_row(_settled_boxes(page), 0, 1)
+
+
 def test_scale_mode_keeps_rows_together_with_minimums(page):
     grid = _heading_kpi_grid(1040, responsive_mode="scale", editable=False)
 

@@ -140,6 +140,10 @@ function resizeItem(grid, el, width, height, minColWidth, notify=true) {
   if (notify) { grid.refreshItems(); grid.layout() }
 }
 
+function restoreFit(el, fit) {
+  if (fit != null) { el.setAttribute("data-fit-width", fit) }
+}
+
 function parsePixelValue(value) {
   const match = /^([\d.]+)px$/.exec((value || "").trim())
   return match ? parseFloat(match[1]) : null
@@ -314,7 +318,8 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
     }
     const elements = items.map(item => item.getElement())
     const widths = elements.map(el => parseFloat(el.getAttribute("data-width")) || 100)
-    return {...plan, top: boxes[index].top, elements, widths}
+    const fits = elements.map(el => el.getAttribute("data-fit-width"))
+    return {...plan, top: boxes[index].top, elements, widths, fits}
   }
 
   // The neighbours take the width the resized tile gives up or gains past its
@@ -328,6 +333,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
       const el = plan.elements[index]
       const pct = shift ? Math.floor((plan.widths[index] - shift) * 1e4) / 1e4 : plan.widths[index]
       setAuthoredWidth(el, pct)
+      if (!shift) { restoreFit(el, plan.fits[index]) }
       applyDisplayWidth(grid, el, minColWidth())
     }
   }
@@ -457,7 +463,7 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
         onSelect(el)
         resizeStart = {
           el, rectWidth: event.rect.width, width: parseFloat(el.getAttribute("data-width")) || 100,
-          plan: press?.el === el ? press.plan : rowPlan(el), decision: null,
+          fit: el.getAttribute("data-fit-width"), plan: press?.el === el ? press.plan : rowPlan(el), decision: null,
         }
         const item = grid.getItem(el);
         let height = el.style.height.slice(null, -2);
@@ -489,7 +495,15 @@ function make_editable(model, container, grid, state, onCommit, onSelect) {
         const unchanged = ours && Math.abs(outer - left - right - resizeStart.rectWidth) < 0.5
         const w = unchanged ? resizeStart.width : clampWidthForItem(grid, ev.target, widthPercent(outer, gridWidth(grid)))
         ev.target.style.zIndex = 100
-        resizeItem(grid, ev.target, w, h, minColWidth(), false)
+        if (unchanged) {
+          // Back at its starting width, a tile fitted to its row keeps that fit, so the row stays together.
+          setAuthoredWidth(ev.target, w)
+          restoreFit(ev.target, resizeStart.fit)
+          applyDisplayWidth(grid, ev.target, minColWidth())
+          ev.target.style.height = `${h}px`
+        } else {
+          resizeItem(grid, ev.target, w, h, minColWidth(), false)
+        }
         const split = ours && !!resizeStart.plan?.split
         if (split && resizeStart.decision) { applySplit(resizeStart.plan, resizeStart.decision, w) }
         // A neighbour's width applies at once, so an animated move would let its right edge swing in and back out.
