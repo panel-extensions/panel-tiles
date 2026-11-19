@@ -81,6 +81,24 @@ class TileGrid(JSComponent, ListLike):
         before or after the tile under the pointer.""",
     )
 
+    row_resize = param.Selector(
+        default="split",
+        objects=["split", "wrap"],
+        doc="""
+        How widening or narrowing a tile treats the tiles beside it when
+        `layout_mode="rows"`. "split" moves the boundary between the tile and
+        the tile flush against its right edge, like a split pane: once the
+        row is full the neighbour shrinks as the tile grows, and in a full
+        row it grows as the tile narrows. The resize stops where the
+        neighbour would pass its minimum width, and pulling the edge all the
+        way to the row end makes the tile take the whole row, moving the
+        tiles after it to the next row on release. A tile with no neighbour to
+        its right, such as the last one in a row, resizes as in "wrap".
+        "wrap" lets the tile grow past the end of its row, so the tiles that
+        no longer fit move to the next row on release (see
+        `overflow_tolerance`). Has no effect in "masonry" mode.""",
+    )
+
     columns = param.Integer(
         default=None,
         bounds=(1, None),
@@ -133,7 +151,9 @@ class TileGrid(JSComponent, ListLike):
         doc="""
         How far in pixels a tile may be dragged past the end of its row
         while resizing before the row reflows. Within this distance the
-        tile snaps to fill the remaining row space exactly.""",
+        tile snaps to fill the remaining row space exactly. Resizes that
+        split the row with a neighbour (see `row_resize`) never reflow it,
+        so the tolerance does not apply to them.""",
     )
 
     min_col_width = param.Integer(

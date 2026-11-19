@@ -415,6 +415,64 @@ export function resolveRowResize(plan, desired, tolerance) {
   return {state: "overflow", width: plan.fill, final: desired, moving}
 }
 
+// A row with at most this much spare room counts as full, so narrowing a tile
+// hands its width to its neighbours instead of leaving a gap.
+const FULL_ROW_SLACK = 1
+
+/**
+ * Splitter geometry for `planRowResize(items, index, ...)`: the tiles flush
+ * against the resized tile's right edge give way to it, so the boundary
+ * between them moves instead of the row reflowing. `mins` and `maxes` are the
+ * outer widths (px) each item may take. A full row splits from the tile's
+ * current width; a row with spare room fills it first and splits past `fill`.
+ * `end` is the width at which the tile reaches the row end, where it may
+ * still take the whole row if its maximum allows (`reflow`). Returns `plan`
+ * with `split` set, or `split: null` when no tile sits flush to the right of
+ * the resized one.
+ */
+export function planRowSplit(plan, items, mins = [], maxes = []) {
+  const r = items[plan.index]
+  const right = r.left + r.width
+  const neighbors = plan.pushed
+    .filter(p => Math.abs(p.left - right) <= PX_EPS)
+    .map(p => ({index: p.index, width: p.width, min: mins[p.index] ?? 0, max: maxes[p.index] ?? Infinity}))
+  if (!neighbors.length) { return {...plan, split: null} }
+  const full = plan.fill - r.width <= FULL_ROW_SLACK
+  const base = full ? r.width : plan.fill
+  // Stacked neighbours share a column, so the narrowest room bounds them all.
+  const grow = Math.max(0, Math.min(...neighbors.map(n => n.width - n.min)))
+  const shrink = full ? Math.max(0, Math.min(...neighbors.map(n => n.max - n.width))) : Infinity
+  const min = Math.max(mins[plan.index] ?? 0, base - shrink)
+  const max = Math.max(min, Math.min(maxes[plan.index] ?? Infinity, base + grow))
+  const end = plan.limit - plan.left
+  const reflow = (maxes[plan.index] ?? Infinity) >= end - PX_EPS
+  return {...plan, split: {neighbors, full, base, min, max, end, reflow}}
+}
+
+/**
+ * Widths for resizing to `desired` px under a `planRowSplit` plan: below the
+ * row's fill point the tile resizes freely, past it the neighbours shrink by
+ * the excess, and in a full row narrowing the tile widens them. The width is
+ * held where a neighbour would pass its minimum or maximum. Reaching the row
+ * end overflows it instead: the tile takes the whole row on release and the
+ * tiles after it move to the next one.
+ */
+export function resolveRowSplit(plan, desired) {
+  const {neighbors, full, base, min, max, end, reflow} = plan.split
+  if (reflow && desired >= end - PX_EPS) {
+    const held = resolveRowSplit({...plan, split: {...plan.split, reflow: false}}, max)
+    return {...held, state: "overflow", final: end, moving: resolveRowResize(plan, end, 0).moving}
+  }
+  const width = Math.min(max, Math.max(min, desired))
+  const shift = width - base
+  const split = shift > PX_EPS || (full && shift < -PX_EPS)
+  const state = split ? "split" : Math.abs(width - plan.fill) <= PX_EPS ? "fill" : "free"
+  return {
+    state, width, final: width, moving: [], shift: split ? shift : 0,
+    neighbors: neighbors.map(n => ({index: n.index, width: split ? n.width - shift : n.width})),
+  }
+}
+
 /**
  * Snap a dragged edge at `x` to the nearest of `targets` within `range`.
  * Within `tolerance` past `fill` the edge always lands on `fill`; past that
